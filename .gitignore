@@ -1,0 +1,24 @@
+# macOS metadata
+.DS_Store
+
+# Local credentials and installed Skill location
+.env
+.env.*
+!.env.example
+installation-location.txt
+
+# Runtime records, generated media and local builds
+seedance-output/
+run.json
+*.mp4
+*.mov
+*.part
+.seedance-lock/
+.download-*
+.run-*.tmp
+/hypit-seedance
+/hypit-seedance-check
+
+# Local caches and code intelligence
+.cache/
+.codegraph/
