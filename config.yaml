@@ -1,0 +1,6 @@
+# 修改后重启后端；使用 npm run dev 时也需重启前端开发服务。
+server:
+  host: 127.0.0.1
+  port: 3011
+frontend:
+  port: 3010

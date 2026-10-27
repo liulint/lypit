@@ -22,3 +22,12 @@ run.json
 # Local caches and code intelligence
 .cache/
 .codegraph/
+
+# Local studio
+/data/
+/server/data/
+/web/node_modules/
+/web/dist/
+/web/*.tsbuildinfo
+/server/lypit
+/server/server

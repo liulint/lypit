@@ -1,0 +1,343 @@
+.aw-start,
+.asset-workflow {
+  border: 1px solid #e3e7f0;
+  border-radius: 14px;
+  padding: 24px;
+  background: white;
+  margin: 24px 0;
+}
+.aw-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.aw-section-heading h2 {
+  font-size: 19px;
+  margin: 8px 0;
+}
+.aw-section-heading h3 {
+  font-size: 14px;
+  margin: 8px 0;
+}
+.aw-section-heading p,
+.aw-character p {
+  color: #7e8799;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 7px 0;
+}
+.aw-section-heading .pill {
+  font-size: 10px;
+  vertical-align: middle;
+}
+.aw-section-heading > select {
+  font-size: 11px;
+  max-width: 180px;
+  border: 1px solid #e3e7ef;
+  border-radius: 7px;
+  padding: 7px;
+  background: white;
+  color: #8791a4;
+}
+.aw-start-actions,
+.aw-editor-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.aw-start > small {
+  font-size: 11px;
+  color: #969fb0;
+}
+.aw-plan-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
+  background: #f8f9fc;
+  border-radius: 9px;
+  margin: 16px 0 24px;
+}
+.aw-plan-toolbar strong {
+  font-size: 12px;
+}
+.aw-plan-toolbar small {
+  display: block;
+  color: #98a1b2;
+  font-size: 11px;
+  margin-top: 6px;
+}
+.aw-character {
+  margin: 18px 0 30px;
+}
+.aw-character h3 {
+  font-size: 15px;
+  margin: 0;
+}
+.aw-character > div > small {
+  color: #9aa4b5;
+  font-size: 11px;
+}
+.aw-main-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 310px);
+  gap: 15px;
+  margin-top: 16px;
+}
+.aw-view-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 18px 0 30px;
+}
+.aw-image-card {
+  border: 1px solid #e6e9f1;
+  border-radius: 10px;
+  padding: 12px;
+  min-width: 0;
+  background: #fff;
+}
+.aw-image-card.confirmed {
+  border-color: #c9ded5;
+}
+.aw-image-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+.aw-image-heading strong {
+  font-weight: 550;
+}
+.aw-image-heading span {
+  color: #98a4b3;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.aw-image {
+  width: 100%;
+  height: 220px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #f7f8fb;
+}
+.aw-placeholder {
+  height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #f6f8fc;
+  border-radius: 7px;
+  color: #b3bdce;
+  font-size: 11px;
+}
+.aw-image-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.aw-image-actions button {
+  font-size: 10px;
+}
+.aw-image-card > input {
+  font-size: 11px;
+  padding: 8px;
+  width: 100%;
+  border: 1px solid #e3e7ef;
+  border-radius: 6px;
+  margin-top: 10px;
+}
+.aw-image-details {
+  font-size: 10px;
+  color: #929dae;
+  margin-top: 10px;
+}
+.aw-image-details summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+.aw-image-details p {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  max-height: 140px;
+  overflow: auto;
+}
+.aw-image-details > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.aw-image-details a {
+  width: 60px;
+}
+.aw-image-details img {
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+}
+.aw-image-details span {
+  display: block;
+  font-size: 9px;
+}
+.aw-note {
+  font-size: 11px;
+  line-height: 1.8;
+  padding: 13px 16px;
+  background: #f0f3fc;
+  color: #7c8eb5;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+.aw-note p {
+  margin: 0 0 5px;
+}
+.aw-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid #edf0f5;
+  padding-top: 20px;
+  margin-top: 24px;
+}
+.aw-bottom > span {
+  color: #96a1b4;
+  font-size: 11px;
+}
+.aw-bottom button {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.aw-gallery {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+.aw-gallery > h3 {
+  font-size: 13px;
+  margin-top: 20px;
+}
+.aw-editor {
+  padding: 20px;
+  background: #f9fafd;
+  border: 1px solid #e5eaf4;
+  border-radius: 10px;
+}
+.aw-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+  color: #7b879b;
+  margin: 12px 0;
+}
+.aw-editor input,
+.aw-editor textarea {
+  font-size: 12px;
+  color: #55637a;
+  border: 1px solid #e1e6ef;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: white;
+  width: 100%;
+}
+.aw-editor textarea {
+  min-height: 75px;
+  resize: vertical;
+}
+.aw-editor h3 {
+  font-size: 13px;
+  margin: 24px 0 12px;
+}
+.aw-definition {
+  padding: 14px;
+  border: 1px solid #e4e9f2;
+  border-radius: 9px;
+  background: #fff;
+  margin: 12px 0;
+}
+.aw-definition-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.aw-sources {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.aw-sources label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin: 0;
+  gap: 6px;
+}
+.aw-sources input {
+  width: auto;
+}
+.aw-sources img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.aw-editor-actions {
+  justify-content: flex-end;
+}
+.steps {
+  overflow-x: auto;
+}
+.step {
+  min-width: 105px;
+  flex-shrink: 0;
+}
+@media (max-width: 800px) {
+  .aw-view-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .aw-section-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .aw-bottom {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .aw-plan-toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 520px) {
+  .aw-view-grid {
+    grid-template-columns: 1fr;
+  }
+  .aw-start,
+  .asset-workflow {
+    padding: 16px;
+  }
+  .aw-main-grid {
+    grid-template-columns: 1fr;
+  }
+  .aw-image {
+    height: 240px;
+  }
+}

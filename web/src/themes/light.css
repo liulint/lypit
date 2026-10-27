@@ -1,0 +1,53 @@
+/* Default theme. Keep visual tokens here; component CSS only consumes them. */
+:root {
+  color-scheme: light;
+  --font-family:
+    Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  --font-size-base: 14px;
+  --color-page: #f6f7fb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8f9fc;
+  --color-surface-hover: #f0f3f9;
+  --color-border: #e6e9f0;
+  --color-border-strong: #d3d9e5;
+  --color-text: #20283b;
+  --color-text-secondary: #626e85;
+  --color-text-muted: #8590a3;
+  --color-accent: #5265d9;
+  --color-accent-hover: #4254c5;
+  --color-accent-soft: #edf0ff;
+  --color-accent-border: #d9dfff;
+  --color-on-accent: #ffffff;
+  --color-success: #238264;
+  --color-success-soft: #effaf5;
+  --color-success-border: #cce9dd;
+  --color-warning: #946220;
+  --color-warning-soft: #fff9ed;
+  --color-warning-border: #f2dfb7;
+  --color-danger: #b34b48;
+  --color-danger-soft: #fff4f3;
+  --color-danger-border: #f1d4d1;
+  --color-media: #edf0f7;
+  --color-media-label: #ffffff;
+  --color-media-overlay: #20283bbd;
+  --color-backdrop: #25304c47;
+  --color-grid: #dfe5f2;
+  --color-art-lilac: #eeeaff;
+  --color-art-lilac-ink: #8b78ce;
+  --color-art-blue: #e7f0ff;
+  --color-art-blue-ink: #729bd1;
+  --color-art-peach: #fff0e5;
+  --color-art-peach-ink: #d49a73;
+  --radius-xs: 6px;
+  --radius-sm: 9px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --shadow-card: 0 3px 14px #28376104;
+  --shadow-hover: 0 8px 28px #2837610d;
+  --shadow-floating: 0 20px 70px #1e2c4c21;
+  --shadow-accent: 0 4px 10px #5265d921;
+  --focus-ring: 0 0 0 3px #5265d928;
+  --sidebar-width: 232px;
+}
