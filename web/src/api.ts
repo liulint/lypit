@@ -1,352 +1,227 @@
-export type Model = {
-  cli_options?: { reasoning?: string; service_tier?: string };
-  image_edit?: boolean;
-  output_formats?: string[];
-  video_reference?: string;
+export type VideoMode = "first_frame" | "continue" | "first_last" | "reference" | "edit_video";
+export type VideoInput = {shot_id: string; mode: VideoMode; end_shot_id?: string; images: {name:string;role:string;image:Image}[]; source_video?:string; source_hash?:string; source_shot_id?:string};
+export const videoModeNames: Record<VideoMode,string> = {first_frame:"独立镜头 · 严格首帧", continue:"延续上一镜", first_last:"首尾帧控制", reference:"多参考 · 开场引导", edit_video:"基于本镜原视频修改"};
+export function videoCurrent(p: Project, index: number): boolean {
+ const q=p.shots[index];
+ if(q.video_mode==="first_last") {const tail=p.shots.find(s=>s.id===q.video_end_shot_id);return !!tail?.approved && tail.candidates[tail.selected]?.hash===q.video_end_image_hash;}
+ return q.video_mode!=="continue" || (index>0 && !!p.shots[index-1].video && q.video_source_file===p.shots[index-1].video && videoCurrent(p,index-1));
+}
+export type Image = { reference_plan?:ReferencePlan; operation?:string;source_file?:string;source_hash?:string; file: string; hash: string; approved: boolean };
+export type Asset = {
   id: string;
-  capabilities: string[];
-  reference_images: boolean;
-  max_references: number;
-  structured: boolean;
-  async: boolean;
-  audio: boolean;
-  sizes: string[];
-  min_duration: number;
-  max_duration: number;
-  price: number | null;
-  unit: string;
-  price_source: string;
-  verified: string;
-  price_model: string;
-  voice: string;
-};
-export type CLIConfig = {
-  image_mode?: "tool" | "codex";
-  skill_digest?: string;
-  kind: "codex" | "claude" | "gemini";
-  path: string;
-  image_instructions: string;
-  skill_path: string;
-  timeout_seconds: number;
-};
-export type CLIStatus = {
-  catalog?: CLICatalog;
-  kind: string;
-  installed: boolean;
-  path: string;
-  version: string;
-  auth: string;
-  message: string;
-  models: string[];
-};
-export type CLIModelOption = {
-  id: string;
-  label: string;
-  description?: string;
-  reasoning: { id: string; label: string }[];
-  default_reasoning?: string;
-  service_tiers: { id: string; label: string }[];
-};
-export type CLICatalog = {
-  models: string[];
-  options: CLIModelOption[];
-  source: "live" | "cache" | "unavailable";
-  fetched_at?: string;
-  stale: boolean;
-  error?: string;
-};
-export type ImageProbe = {
-  id: string;
-  state: string;
-  quote: Quote;
-  image: string;
-  error: string;
-};
-export type Provider = {
-  credential_source?: "env" | "file";
-  credential_version?: string;
-  cli?: CLIConfig;
-  image_verified?: Record<string, string>;
-  id: string;
-  name: string;
-  adapter: string;
-  base_url: string;
-  key_env: string;
-  models: Model[];
-};
-export type Settings = {
-  providers: Provider[];
-  bindings: Record<string, { provider: string; model: string }>;
-};
-export type Character = {
-  views: ReferenceView[];
-  fixed_features: string;
-  sources: string[];
-  id: string;
+  kind: "character" | "scene" | "prop";
   name: string;
   description: string;
-  image: string;
+  master?: Image;
+  sheet?: Image;
+  views: Image[];
 };
+export type ShotContent = {first_frame:string;description:string;narration:string};
+export type ShotRewriteResult = {revision:number;settings_version:number;before:ShotContent;after:ShotContent;old_duration:number;duration:number;applied_revision?:number};
 export type Shot = {
-  scene_id: string;
-  prop_id: string;
-  purpose: string;
-  camera: CameraPlan;
-  continuity: ContinuityPlan;
-  candidates: Candidate[];
-  selected: string;
-  recommended: string;
-  stale: boolean;
-  video_review: Review;
-  references: string[];
+ content_override?: {version:number};
+ review_status?: "pending" | "changes" | "reviewed";
+ first_frame?: string;
+ source_text?: string;
+ video_mode?: VideoMode;
+ video_end_shot_id?: string;
+ video_end_image_hash?: string;
+ video_source_file?: string;
   id: string;
   title: string;
-  scene: string;
-  action: string;
-  characters: string[];
-  duration: number;
+  description: string;
   narration: string;
-  image_prompt: string;
-  video_prompt: string;
-  transition: string;
-  image: string;
-  video: string;
-  voice: string;
-  warning: string;
-};
-export type Board = {
-  asset_hash?: string;
-  schema: number;
-  visual: VisualPlan;
-  scenes: SceneAsset[];
-  props: SceneAsset[];
-  source_mappings: SourceMapping[];
-  story: {
-    synopsis: string;
-    relationships: string;
-    emotion: string;
-    beats: string[];
-  };
-  version: number;
-  title: string;
-  synopsis: string;
-  characters: Character[];
-  shots: Shot[];
+  duration: number;
+  references: string[];
+  candidates: Image[];
+  selected: number;
   approved: boolean;
+  video?: string;
 };
 export type Project = {
-  asset_workflow?: boolean;
-  asset_sets?: AssetSet[];
-  visual: VisualPlan;
-  reference_mappings: SourceMapping[];
+ plan_version?: number;
+ plan_approved?: boolean;
+ planned_shots?: Shot[];
+ previous_shots?: Shot[];
+  audio_mode?: "dialogue" | "narration";
+  aspect_ratio?: "9:16" | "16:9";
+  duration?: number;
   id: string;
+  title: string;
   idea: string;
+  script: string;
+  style: string;
   revision: number;
-  status: string;
-  boards: Board[];
-  references: string[];
-  music: string;
-  tasks: {
-    id: string;
-    kind: string;
-    state: string;
-    message: string;
-    started: string;
-    finished: string;
-  }[];
-  error: string;
-  output: string;
-  attempts: Record<
-    string,
-    {
-      state: string;
-      kind: string;
-      fee: number | null;
-      usage: unknown;
-      detail: string;
-    }
-  >;
+  created: string;
+  updated: string;
+  archived: boolean;
+  analyzed: boolean;
+  assets_locked: boolean;
+  boards_locked: boolean;
+  assets: Asset[];
+  shots: Shot[];
+  output?: string;
+  voice?: string;
+  mode: string;
 };
-export type Quote = {
-  created?: string;
+export type Task = {
+ rewrite?:ShotRewriteResult;
+ target_duration?:number;
+  shot_input_hash?: string;
+  plan_trial?: boolean;
+  video_usage?: VideoUsage[];
+  shot_id?: string;
   id: string;
+  project_id: string;
+  quote_id: string;
   stage: string;
-  estimate: number | null;
-  notice: string;
-  requests: {
-    count: number;
-    conditional: boolean;
-    role: string;
-    kind: string;
-    provider: string;
-    model: string;
-    prompt: string;
-    references: string[];
-    duration: number;
-    parameters: unknown;
-    estimate: number | null;
-  }[];
+  status: string;
+  progress: number;
+  message: string;
+  created: string;
+  updated: string;
+  mode: string;
 };
+export type VideoUsage = {
+  shot_id: string; title: string; remote_id: string; model: string;
+  completion_tokens?: number; total_tokens?: number;
+  cost?: {amount: string; currency: string; model: string; basis: string; source: string; url: string; checked: string};
+  reason?: string; recorded: string;
+};
+export type BoardPreview = {
+ task_id: string; project_id: string; revision: number; status: string; shots: Shot[]; completed: number; total: number;
+};
+export type ReferencePlan = {version:number; sources:{image:{file:string;hash:string};asset_id?:string;name:string;kind:string;width:number;height:number}[];boards:{file?:string;kind:string;width:number;height:number;cells:{source:number;x:number;y:number}[];hash:string;bytes:number}[]};
+export type ImageEditSpec = {base:Image;base_index:number;base_version:number;changes:string;preserve:string;auxiliary_ids:string[]};
+export type Quote = {
+ target_duration?:number;
+  plan_trial?: boolean;
+  estimate?: { amount: string; currency: string; model: string; basis: string; source: string; url: string; checked: string };
+  estimate_reason?: string;
+  image_edit?: ImageEditSpec;
+  reference_ids?: string[];
+  image_reference_plan?: ReferencePlan;
+  shot_reference_plans?: Record<string,ReferencePlan>;
+  reference_policy_version?: number;
+  replaces_task_id?: string;
+ video_inputs?: VideoInput[];
+  shot_id?: string;
+  feedback?: string;
+  board_images_per_shot?: number;
+  aspect_ratio?: "9:16" | "16:9";
+  duration?: number;
+  id: string;
+  project_id: string;
+  revision: number;
+  settings_version: number;
+  stage: string;
+  items: { label: string; count: number }[];
+  mode: string;
+  unknown: boolean;
+  expires: string;
+  task_id?: string;
+};
+export type Capability = "text" | "image" | "video" | "voice";
+export type ModelPricing = { rows: { label: string; condition?: string; amount: string; unit: string; currency?: string }[]; source: string; url: string; checked: string; note: string };
+export type CatalogModel = { id: string; name: string; capabilities: string[]; services: Capability[]; verified: boolean; pricing?: ModelPricing };
+export type ModelCatalog = { models: CatalogModel[]; source: string; updated: string; stale: boolean; error?: string };
+export type Vendor = {
+  kind?: "codex" | "claude" | "ark" | "bailian" | "custom";
+  region?: string;
+  workspace?: string;
+  key_mode?: "local" | "env";
+  credential_id?: string;
+  id: string;
+  name: string;
+  type: "api" | "cli";
+  protocol?: "openai" | "ark";
+  base?: string;
+  key_env?: string;
+  cli?: "codex" | "claude";
+  executable?: string;
+};
+export type Endpoint = {
+  vendor_id?: string;
+  model: string;
+  base?: string;
+  key_env?: string;
+};
+export type Settings = {
+  image_concurrency?: number;
+  video_concurrency?: number;
+  version: number;
+  registry_version: number;
+  mode: string;
+  vendors: Vendor[];
+  text: Endpoint;
+  image: Endpoint;
+  video: Endpoint;
+  voice: Endpoint;
+};
+export type SettingsUpdate = Settings & { api_keys?: Record<string, string>; section?: "vendors" | "services" };
+export const stageNames: Record<string, string> = {
+  analyze: "故事分析",
+  masters: "角色主图",
+  details: "设定图与场景道具",
+  board_plan: "分镜规划",
+  shot_rewrite:"按秒数重写单镜",
+  boards: "分镜生图",
+  board_retry: "重新生成一版",
+  board_edit:"基于当前图修改",
+  shot_video: "单镜视频制作",
+  videos: "视频与声音",
+  render: "本地合成",
+};
+export const statusNames: Record<string, string> = {
+  superseded: "已转单镜新任务",
+  queued: "等待执行",
+  running: "正在制作",
+  completed: "已完成",
+  failed: "需要处理",
+  interrupted: "等待恢复",
+  cancelled: "已停止",
+  abandoned: "已放弃",
+};
+export const blocked = (t: Task) =>
+  ["queued", "running", "failed", "interrupted", "cancelled"].includes(
+    t.status,
+  );
+export const media = (file: string) =>
+  `/media/${file.split("/").map(encodeURIComponent).join("/")}`;
 export async function api<T>(
   path: string,
   body?: unknown,
-  method?: string,
+  method = body === undefined ? "GET" : "POST",
 ): Promise<T> {
-  const response = await fetch("/api" + path, {
-    method: method ?? (body === undefined ? "GET" : "POST"),
-    headers:
-      body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? "请求失败");
+  let response: Response;
+  try {
+    response = await fetch("/api" + path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Lypit-Client": "studio",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    throw new Error(
+      "无法连接本机服务或请求超时，请检查启动终端；提交中的操作请先查看任务记录再重试。",
+    );
+  }
+  const data = await response
+    .json()
+    .catch(() => ({ error: "服务响应格式异常，请检查后端是否正在运行" }));
+  if (!response.ok)
+    throw new Error(data.error || `请求失败（${response.status}）`);
   return data as T;
 }
-export const media = (path: string) =>
-  "/media/" + path.split("/").map(encodeURIComponent).join("/");
-export const money = (amount: number | null) =>
-  amount === null ? "费用上界未知" : `¥${amount.toFixed(2)}`;
-export const statusLabel: Record<string, string> = {
-  draft: "等待创作",
-  running: "制作中",
-  review: "等待审核",
-  complete: "已完成",
-  attention: "需要处理",
-  cancelled: "已暂停",
-  interrupted: "可恢复",
-  succeeded: "已完成",
-  failed: "失败",
-};
 
-export type VisualPlan = {
-  style: string;
-  photography: string;
-  palette: string;
-  candidates: number;
-  repairs: number;
-};
-export type Review = {
-  state: string;
-  identity: number;
-  style: number;
-  composition: number;
-  continuity: number;
-  technical: number;
-  score: number;
-  identity_error: boolean;
-  technical_error: boolean;
-  issues: string[];
-  reason: string;
-  correction: string;
-  accepted: string;
-};
-export type ReferenceView = {
-  prompt?: string;
-  references?: ReferenceUse[];
-  id: string;
-  kind: string;
-  image: string;
-  hash: string;
-  review: Review;
-};
-export type SceneAsset = {
-  prompt?: string;
-  references?: ReferenceUse[];
-  id: string;
-  name: string;
-  description: string;
-  image: string;
-  hash: string;
-  review: Review;
-  sources: string[];
-};
-export type SourceMapping = {
-  file: string;
-  kind: string;
-  target: string;
-  reason: string;
-};
-export type ReferenceUse = {
-  asset_id: string;
-  file: string;
-  hash: string;
-  purpose: string;
-};
-export type Candidate = {
-  id: string;
-  intent: string;
-  round: number;
-  prompt: string;
-  video_prompt: string;
-  image: string;
-  hash: string;
-  references: ReferenceUse[];
-  review: Review;
-};
-export type CameraPlan = {
-  scale: string;
-  angle: string;
-  composition: string;
-  movement: string;
-  view: string;
-};
-export type ContinuityPlan = {
-  time: string;
-  weather: string;
-  lighting: string;
-  positions: string;
-  gaze: string;
-  direction: string;
-  props: string;
-  end_state: string;
-  handoff: string;
-};
+export type ShotDurationPolicy = {min:number;max:number;model:string;known:boolean;settings_version:number};
 
-export type AssetSet = {
-  version: number;
-  work_quote: string;
-  visual: VisualPlan;
-  story: {
-    synopsis: string;
-    relationships: string;
-    emotion: string;
-    beats: string[];
-  };
-  characters: Character[];
-  scenes: SceneAsset[];
-  props: SceneAsset[];
-  locked: boolean;
-  approvals: Record<string, { hash: string; reason: string; at: string }>;
-  intents: Record<string, string>;
+export type UsageRecord = {
+ id:string; task_id:string; project_id:string; stage:string; status:string; title?:string;
+ vendor:string; model:string; transport:string; recorded:string;
+ input_tokens?:number; output_tokens?:number; cached_input_tokens?:number; total_tokens?:number; video_tokens?:number;
+ cost?:VideoUsage["cost"]; reason:string;
 };
-export const quoteStageLabels: Record<string, string> = {
-  asset_plan: "确认故事分析",
-  character_masters: "确认角色主图制作",
-  reference_assets: "确认参考素材制作",
-  storyboard: "确认分镜制作",
-  fill: "确认局部补图",
-  video: "确认整批视频制作",
-};
-
-export function quoteRequestLabel(
-  stage: string,
-  r: { kind: string; role?: string },
-) {
-  if (r.kind === "image") {
-    if (stage === "character_masters") return "角色正面主图";
-    if (stage === "reference_assets")
-      return r.role === "character_image" ? "角色其他视角" : "场景或道具参考图";
-    return "分镜图片";
-  }
-  if (r.kind === "text" && stage === "asset_plan") return "故事与资产分析";
-  return (
-    (
-      {
-        text: "分镜规划",
-        vision: "视觉审核",
-        video: "视频镜头",
-        tts: "旁白配音",
-      } as Record<string, string>
-    )[r.kind] ?? r.kind
-  );
-}

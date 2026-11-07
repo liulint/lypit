@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -23,15 +24,19 @@ func testStudio(t *testing.T) *Studio {
 		t.Fatal(e)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s, e := newStudio(ctx, root, t.TempDir(), "")
+	dir := t.TempDir()
+	if t.Name() == "TestMockFilmIntegration" && os.Getenv("LYPIT_TEST_DATA") != "" {
+		dir = os.Getenv("LYPIT_TEST_DATA")
+	}
+	s, e := newStudio(ctx, root, dir)
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() {
 		cancel()
 		s.mu.Lock()
-		for _, stop := range s.running {
-			stop()
+		for _, c := range s.running {
+			c()
 		}
 		s.mu.Unlock()
 		s.wg.Wait()
@@ -39,397 +44,411 @@ func testStudio(t *testing.T) *Studio {
 	})
 	return s
 }
-func addProject(t *testing.T, s *Studio) Project {
+func request(t *testing.T, s *Studio, method, path string, body any, want int) []byte {
 	t.Helper()
-	p := Project{ID: uid(), Idea: "一只小猫的城市旅行", Revision: 1, Created: now(), Status: "draft", Attempts: map[string]Attempt{}}
-	if e := s.store.change(func(st *State) error { st.Projects[p.ID] = &p; return nil }); e != nil {
+	var b []byte
+	if body != nil {
+		b = jsonBytes(body)
+	}
+	req := httptest.NewRequest(method, "http://127.0.0.1:8080"+path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Lypit-Client", "studio")
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, req)
+	if w.Code != want {
+		t.Fatalf("%s %s: status %d want %d: %s", method, path, w.Code, want, w.Body.String())
+	}
+	return w.Body.Bytes()
+}
+func getProject(t *testing.T, s *Studio, id string) Project {
+	t.Helper()
+	p, e := s.store.project(id)
+	if e != nil {
 		t.Fatal(e)
 	}
 	return p
 }
-func waitProject(t *testing.T, s *Studio, id string) Project {
+func createProject(t *testing.T, s *Studio) Project {
 	t.Helper()
-	end := time.Now().Add(25 * time.Second)
-	for time.Now().Before(end) {
-		p, _ := s.store.project(id)
-		s.mu.Lock()
-		_, active := s.running[id]
-		s.mu.Unlock()
-		if !active && p.Status != "running" {
-			return p
+	var p Project
+	b := request(t, s, "POST", "/api/projects", map[string]string{"title": "旧书里的明天", "idea": "青年在书店里发现一本记录着明天的旧书。", "style": "温暖电影感"}, 200)
+	if e := json.Unmarshal(b, &p); e != nil {
+		t.Fatal(e)
+	}
+	return p
+}
+func waitTask(t *testing.T, s *Studio, id string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		v, e := s.store.task(id)
+		if e != nil {
+			t.Fatal(e)
 		}
-		time.Sleep(10 * time.Millisecond)
+		if v.Status == "completed" {
+			return
+		}
+		if v.Status == "failed" || v.Status == "cancelled" {
+			t.Fatalf("task %s %s: %s (data %s)", v.Stage, v.Status, v.Message, s.data)
+		}
+		time.Sleep(15 * time.Millisecond)
 	}
-	t.Fatal("任务超时")
-	return Project{}
+	t.Fatal("task timeout")
 }
-func TestBoardValidationAndDependency(t *testing.T) {
-	b := mockBoard(Project{Idea: "cat"}, "", "")
-	if e := normalizeBoard(&b); e != nil {
+func stage(t *testing.T, s *Studio, p Project, name string) Project {
+	t.Helper()
+	if name == "boards" && !p.PlanApproved {
+		p = stage(t, s, p, "board_plan")
+		for i := range p.PlannedShots {
+			p.PlannedShots[i].ReviewStatus = "reviewed"
+		}
+		request(t, s, "PUT", "/api/projects/"+p.ID+"/board-plan", map[string]any{"revision": p.Revision, "shots": p.PlannedShots, "approve": true}, 200)
+		p = getProject(t, s, p.ID)
+	}
+	var q Quote
+	b := request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": name}, 200)
+	if e := json.Unmarshal(b, &q); e != nil {
 		t.Fatal(e)
 	}
-	b.Shots[0].References = []string{"s2"}
-	if normalizeBoard(&b) == nil {
-		t.Fatal("forward reference accepted")
+	var job Task
+	b = request(t, s, "POST", "/api/quotes/"+q.ID+"/confirm", map[string]bool{"allow_unknown": false}, 200)
+	if e := json.Unmarshal(b, &job); e != nil {
+		t.Fatal(e)
 	}
-	b.Shots[0].References = nil
-	b.Shots[0].Duration = 15
-	if normalizeBoard(&b) == nil {
-		t.Fatal("overlong film accepted")
-	}
+	waitTask(t, s, job.ID)
+	return getProject(t, s, p.ID)
 }
-func TestPreserveOnlyUnaffectedAssets(t *testing.T) {
-	old := mockBoard(Project{}, "", "")
-	old.Characters[0].Image = "character.png"
-	for i := range old.Shots {
-		old.Shots[i].Image = old.Shots[i].ID + ".png"
-		old.Shots[i].Video = old.Shots[i].ID + ".mp4"
-	}
-	next := clone(old)
-	next.Shots[0].ImagePrompt += " rainy"
-	next.Shots[0].Image = ""
-	next.Shots[0].Video = ""
-	preserveAssets(&old, &next)
-	if next.Shots[1].Image != old.Shots[1].Image || next.Shots[0].Image != "" {
-		t.Fatal("wrong invalidation")
-	}
-	next = clone(old)
-	for i := range next.Shots {
-		next.Shots[i].Image = ""
-		next.Shots[i].Video = ""
-	}
-	next.Shots[1].References = []string{"s1"}
-	next.Shots[0].ImagePrompt += "rain"
-	preserveAssets(&old, &next)
-	if next.Shots[1].Image != "" {
-		t.Fatal("dependent reused")
-	}
+func approve(t *testing.T, s *Studio, p Project, asset, part string) Project {
+	t.Helper()
+	request(t, s, "POST", "/api/projects/"+p.ID+"/assets/"+asset+"/approve", map[string]any{"revision": p.Revision, "part": part}, 200)
+	return getProject(t, s, p.ID)
 }
-func TestConfirmRevisionSettingsReplay(t *testing.T) {
+func lock(t *testing.T, s *Studio, p Project, kind string) Project {
+	t.Helper()
+	request(t, s, "POST", "/api/projects/"+p.ID+"/"+kind+"/lock", map[string]int{"revision": p.Revision}, 200)
+	return getProject(t, s, p.ID)
+}
+
+func TestNoLoginAndLocalBoundary(t *testing.T) {
 	s := testStudio(t)
-	p := addProject(t, s)
-	readyAssets(t, s, p.ID)
-	q, e := s.makeQuote(p.ID, "storyboard", "", "")
-	if e != nil {
-		t.Fatal(e)
+	request(t, s, "GET", "/api/health", nil, 200)
+	p := createProject(t, s)
+	if p.ID == "" {
+		t.Fatal("missing project")
 	}
-	s.store.update(p.ID, func(p *Project) { p.Revision++ })
-	if s.confirm(p.ID, q.ID, false) == nil {
-		t.Fatal("stale revision accepted")
+	r := httptest.NewRequest("POST", "http://127.0.0.1:8080/api/projects", bytes.NewReader([]byte(`{}`)))
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Fatal("cross-site write allowed")
 	}
-	q, e = s.makeQuote(p.ID, "storyboard", "", "")
-	if e != nil {
-		t.Fatal(e)
+	r = httptest.NewRequest("GET", "http://evil.invalid/api/projects", nil)
+	w = httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Fatal("DNS rebinding host allowed")
 	}
-	s.store.change(func(st *State) error { st.Settings.Providers[0].Name = "changed"; return nil })
-	if s.confirm(p.ID, q.ID, false) == nil {
-		t.Fatal("stale config accepted")
-	}
-	q, e = s.makeQuote(p.ID, "storyboard", "", "")
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = s.confirm(p.ID, q.ID, false); e != nil {
-		t.Fatal(e)
-	}
-	if e = s.confirm(p.ID, q.ID, false); e != nil {
-		t.Fatal(e)
-	}
-	p = waitProject(t, s, p.ID)
-	if p.Status != "review" || len(p.Boards) != 1 {
-		t.Fatalf("state=%s boards=%d err=%s", p.Status, len(p.Boards), p.Error)
-	}
-	count := len(p.Attempts)
-	if count == 0 {
-		t.Fatal("no requests recorded")
-	}
-	if e = s.confirm(p.ID, q.ID, false); e != nil {
-		t.Fatal(e)
-	}
-	if e = s.run(context.Background(), p.ID, defaults(), "storyboard_resume", "", ""); e != nil {
-		t.Fatal(e)
-	}
-	resumed, _ := s.store.project(p.ID)
-	if len(resumed.Attempts) != count {
-		t.Fatal("resume duplicated requests")
-	}
+	request(t, s, "GET", "/api/missing", nil, 404)
+	request(t, s, "GET", "/media/a/response.bin", nil, 404)
 }
-func TestUnknownRequestNeverPostsTwice(t *testing.T) {
+func TestStageGatesAndImmutableReferences(t *testing.T) {
 	s := testStudio(t)
-	p := addProject(t, s)
-	var posts atomic.Int32
-	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { posts.Add(1); w.WriteHeader(502) }))
-	defer endpoint.Close()
-	settings := defaults()
-	settings.Providers[0].Adapter = "openai"
-	settings.Providers[0].BaseURL = endpoint.URL
-	settings.Providers[0].KeyEnv = "TEST_STUDIO_KEY"
-	t.Setenv("TEST_STUDIO_KEY", "private-value")
-	for i := 0; i < 2; i++ {
-		if _, e := s.request(context.Background(), p.ID, settings, "text", "hello", nil, 0); e == nil {
-			t.Fatal("failed response succeeded")
+	p := createProject(t, s)
+	request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": "boards"}, 400)
+	p = stage(t, s, p, "analyze")
+	p = stage(t, s, p, "masters")
+	request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": "details"}, 400)
+	for _, a := range p.Assets {
+		if a.Kind == "character" {
+			p = approve(t, s, p, a.ID, "master")
 		}
 	}
-	if posts.Load() != 1 {
-		t.Fatalf("POST count %d", posts.Load())
+	p = stage(t, s, p, "details")
+	for _, a := range p.Assets {
+		if a.Kind == "character" {
+			if len(a.Views) != 4 {
+				t.Fatal("sheet was not cropped")
+			}
+			p = approve(t, s, p, a.ID, "sheet")
+		} else {
+			p = approve(t, s, p, a.ID, "master")
+		}
 	}
-	raw, _ := json.Marshal(s.store.settings())
-	if bytes.Contains(raw, []byte("private-value")) {
-		t.Fatal("secret leak")
-	}
-}
-func TestSavedResponseDoesNotRegenerate(t *testing.T) {
-	s := testStudio(t)
-	p := addProject(t, s)
-	var posts atomic.Int32
-	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		posts.Add(1)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"ok\":true}"}}],"usage":{"completion_tokens":5}}`))
-	}))
-	defer endpoint.Close()
-	settings := defaults()
-	settings.Providers[0].Adapter = "openai"
-	settings.Providers[0].BaseURL = endpoint.URL
-	settings.Providers[0].KeyEnv = "TEST_STUDIO_KEY"
-	t.Setenv("TEST_STUDIO_KEY", "private-value")
-	file, e := s.request(context.Background(), p.ID, settings, "text", "hello", nil, 0)
-	if e != nil {
+	p = lock(t, s, p, "assets")
+	request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": "videos"}, 400)
+	im := p.Assets[0].Master
+	if e := os.WriteFile(s.media(im.File), []byte("tampered"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	again, e := s.request(context.Background(), p.ID, settings, "text", "hello", nil, 0)
-	if e != nil || file != again || posts.Load() != 1 {
-		t.Fatalf("cache failure %s %v %d", again, e, posts.Load())
-	}
+	request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": "boards"}, 400)
 }
-func TestAtomicClaim(t *testing.T) {
+func TestQuoteStalenessAndIdempotency(t *testing.T) {
 	s := testStudio(t)
-	p := addProject(t, s)
-	var posts atomic.Int32
-	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		posts.Add(1)
-		time.Sleep(30 * time.Millisecond)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
-	}))
-	defer endpoint.Close()
-	settings := defaults()
-	settings.Providers[0].Adapter = "openai"
-	settings.Providers[0].BaseURL = endpoint.URL
-	settings.Providers[0].KeyEnv = "TEST_CLAIM_KEY"
-	t.Setenv("TEST_CLAIM_KEY", "local-test")
+	p := createProject(t, s)
+	var q Quote
+	_ = json.Unmarshal(request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": "analyze"}, 200), &q)
+	p.Title = "修改后的标题"
+	request(t, s, "PUT", "/api/projects/"+p.ID, p, 200)
+	request(t, s, "POST", "/api/quotes/"+q.ID+"/confirm", map[string]bool{}, 400)
+	p = getProject(t, s, p.ID)
+	_ = json.Unmarshal(request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": "analyze"}, 200), &q)
 	var wg sync.WaitGroup
+	ids := make(chan string, 8)
+	errs := make(chan string, 8)
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = s.request(context.Background(), p.ID, settings, "text", "same", nil, 0)
+			req := httptest.NewRequest("POST", "http://127.0.0.1:8080/api/quotes/"+q.ID+"/confirm", bytes.NewReader([]byte(`{}`)))
+			req.Header.Set("X-Lypit-Client", "studio")
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			s.router().ServeHTTP(w, req)
+			var job Task
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &job) != nil {
+				errs <- fmt.Sprint(w.Code, w.Body.String())
+				return
+			}
+			ids <- job.ID
 		}()
 	}
 	wg.Wait()
-	if posts.Load() != 1 {
-		t.Fatalf("duplicate POSTs: %d", posts.Load())
+	close(ids)
+	close(errs)
+	for e := range errs {
+		t.Fatal(e)
+	}
+	id := ""
+	for got := range ids {
+		if id != "" && id != got {
+			t.Fatal("duplicate task")
+		}
+		id = got
+	}
+	waitTask(t, s, id)
+	jobs, e := s.store.tasks(p.ID)
+	if e != nil || len(jobs) != 1 {
+		t.Fatal("expected one durable task", e, len(jobs))
+	}
+	history, e := s.store.history(p.ID)
+	if e != nil || len(history) != 3 {
+		t.Fatal("history missing", e, len(history))
 	}
 }
-func TestSettingsCapabilitiesAndOrigin(t *testing.T) {
-	s := testStudio(t)
-	settings := defaults()
-	settings.Providers[0].Models[0].ReferenceImages = false
-	if checkReferences(settings.Providers[0].Models[0], []string{"x.png"}) == nil {
-		t.Fatal("refs silently dropped")
-	}
-	settings.Providers[0].Adapter = "seedance"
-	settings.Providers[0].BaseURL = "https://evil.example/v1"
-	settings.Providers[0].KeyEnv = "KEY"
-	if validateSettings(settings) == nil {
-		t.Fatal("unsafe seedance endpoint")
-	}
-	r := s.router()
-	req := httptest.NewRequest("POST", "/api/projects", bytes.NewBufferString(`{"idea":"x"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "https://evil.example")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != 403 {
-		t.Fatal(w.Code)
-	}
-}
-func TestRestartRecovery(t *testing.T) {
+func TestPersistenceAndExclusiveStore(t *testing.T) {
 	dir := t.TempDir()
-	store, e := openStore(dir)
+	st, e := openStore(dir)
 	if e != nil {
 		t.Fatal(e)
 	}
-	p := &Project{ID: "p", Status: "running", Attempts: map[string]Attempt{"a": {State: "submission_unknown"}}, Tasks: []Task{{State: "running"}}}
-	store.change(func(st *State) error { st.Projects["p"] = p; return nil })
-	store.close()
-	store, e = openStore(dir)
+	p, e := st.create("持久化", "故事", "电影", defaultAspect, defaultDuration)
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer store.close()
-	got, _ := store.project("p")
-	if got.Status != "interrupted" || got.Attempts["a"].State != "submission_unknown" || got.Tasks[0].State != "interrupted" {
-		t.Fatal(got)
+	if _, e = openStore(dir); e == nil {
+		t.Fatal("second writer accepted")
+	}
+	if e = st.close(); e != nil {
+		t.Fatal(e)
+	}
+	st, e = openStore(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer st.close()
+	stored, e := st.project(p.ID)
+	if e != nil || stored.Title != p.Title {
+		t.Fatal("project not persisted", e)
+	}
+}
+func TestUnknownProviderSubmissionNeverResubmits(t *testing.T) {
+	t.Setenv("TEST_PROVIDER_KEY", "fake-test-key")
+	s := testStudio(t)
+	p := createProject(t, s)
+	var hits atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		h := w.(http.Hijacker)
+		conn, _, _ := h.Hijack()
+		conn.Close()
+	}))
+	defer provider.Close()
+	task := Task{ID: uid(), ProjectID: p.ID, Status: "running", Input: p, Config: defaultSettings()}
+	_, e := s.store.db.Exec("INSERT INTO tasks VALUES(?,?,?,?,?,?)", task.ID, p.ID, "running", jsonBytes(task), jsonBytes(p), jsonBytes(task.Config))
+	if e != nil {
+		t.Fatal(e)
+	}
+	ep := Endpoint{Base: provider.URL, KeyEnv: "TEST_PROVIDER_KEY"}
+	for i := 0; i < 2; i++ {
+		if _, e = s.paid(context.Background(), &task, "test", ep, "/paid", "application/json", []byte(`{}`)); e == nil {
+			t.Fatal("expected unknown result")
+		}
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("paid requests=%d", hits.Load())
 	}
 }
 func TestMockFilmIntegration(t *testing.T) {
 	if os.Getenv("LYPIT_INTEGRATION") != "1" {
-		t.Skip("set LYPIT_INTEGRATION=1 to render a real local film")
+		t.Skip("set LYPIT_INTEGRATION=1 for local FFmpeg export")
 	}
-	for _, tool := range []string{"ffmpeg", "ffprobe", "hypit"} {
-		if _, e := exec.LookPath(tool); e != nil {
-			t.Fatal(e)
+	// Exercise the entire film pipeline with only the two declared local dependencies available.
+	tools := t.TempDir()
+	for _, name := range []string{"ffmpeg", "ffprobe"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(tools, name)
+		if runtime.GOOS == "windows" {
+			target += ".exe"
+			err = copyTestFile(path, target, 0700)
+		} else {
+			err = os.Symlink(path, target)
+		}
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
+	t.Setenv("PATH", tools)
+	for _, spec := range []struct {
+		aspect   string
+		duration int
+	}{{"9:16", 60}, {"16:9", 17}} {
+		t.Run(fmt.Sprintf("%s_%ds", spec.aspect, spec.duration), func(t *testing.T) { testMockFilmSpec(t, spec.aspect, spec.duration) })
+	}
+}
+func testMockFilmSpec(t *testing.T, aspect string, duration int) {
 	s := testStudio(t)
-	p := addProject(t, s)
-	p = runAssetQuote(t, s, p.ID, "asset_plan", "")
-	p = runAssetQuote(t, s, p.ID, "character_masters", "")
-	p = approveAssetsForTest(t, s, p.ID, true)
-	p = runAssetQuote(t, s, p.ID, "reference_assets", "")
-	p = approveAssetsForTest(t, s, p.ID, false)
-	a := assets(p)
-	w := modelAPI(t, s, "POST", "/api/projects/"+p.ID+"/assets/lock", map[string]int{"version": a.Version, "revision": p.Revision})
-	if w.Code != 200 {
-		t.Fatal(w.Body.String())
-	}
-	p, _ = s.store.project(p.ID)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	q, e := s.makeQuote(p.ID, "storyboard", "", "")
-	if e != nil {
+	var p Project
+	if e := json.Unmarshal(request(t, s, "POST", "/api/projects", map[string]any{"title": "规格验收", "idea": "一本旧书带来的故事", "style": "温暖电影感", "aspect_ratio": aspect, "duration": duration, "audio_mode": map[bool]string{true: "narration", false: "dialogue"}[aspect == "16:9"]}, 200), &p); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.store.change(func(st *State) error {
-		sq := st.Quotes[q.ID]
-		sq.Quote.Used = true
-		st.Quotes[q.ID] = sq
-		st.Projects[p.ID].ActiveQuote = q.ID
-		return nil
-	}); e != nil {
+	for _, name := range []string{"analyze", "masters"} {
+		p = stage(t, s, p, name)
+	}
+	for _, a := range p.Assets {
+		if a.Kind == "character" {
+			p = approve(t, s, p, a.ID, "master")
+		}
+	}
+	p = stage(t, s, p, "details")
+	for _, a := range p.Assets {
+		if a.Kind == "character" {
+			p = approve(t, s, p, a.ID, "sheet")
+		} else {
+			p = approve(t, s, p, a.ID, "master")
+		}
+	}
+	p = lock(t, s, p, "assets")
+	q, e := s.quoteFor(p, defaultSettings(), "board_plan")
+	if e != nil || len(q.Items) != 1 || q.Duration != duration || q.AspectRatio != aspect {
+		t.Fatal("quote ignores video spec", q, e)
+	}
+	p = stage(t, s, p, "boards")
+	if e := validateShotPlan(p); e != nil {
 		t.Fatal(e)
 	}
-	if e := s.run(ctx, p.ID, defaults(), "storyboard", "", ""); e != nil {
-		t.Fatal(e)
+	for _, q := range p.Shots {
+		request(t, s, "PUT", "/api/projects/"+p.ID+"/shots/"+q.ID, map[string]any{"revision": p.Revision, "selected": 0, "approved": true, "narration": q.Narration}, 200)
+		p = getProject(t, s, p.ID)
 	}
-	s.store.update(p.ID, func(p *Project) { p.Boards[0].Approved = true })
-	videoQuote, err := s.makeQuote(p.ID, "video", "", "")
-	if err != nil {
-		t.Fatal(err)
+	p = lock(t, s, p, "boards")
+	p = stage(t, s, p, "videos")
+	if dialogueMode(p) && p.Voice != "" {
+		t.Fatal("dialogue generated unwanted narrator")
 	}
-	if err = s.store.change(func(st *State) error {
-		sq := st.Quotes[videoQuote.ID]
-		sq.Quote.Used = true
-		st.Quotes[videoQuote.ID] = sq
-		st.Projects[p.ID].ActiveQuote = videoQuote.ID
-		return nil
-	}); err != nil {
-		t.Fatal(err)
+	if !dialogueMode(p) && p.Voice == "" {
+		t.Fatal("narrator mode lost voice")
 	}
-	if e := s.run(ctx, p.ID, defaults(), "video", "", ""); e != nil {
-		t.Fatal(e)
-	}
-	p, _ = s.store.project(p.ID)
+	p = stage(t, s, p, "render")
 	if p.Output == "" {
-		t.Fatal("no final film")
+		t.Fatal("no film")
 	}
-	audits := 0
-	for _, a := range p.Attempts {
-		if a.Kind == "vision" && strings.Contains(a.Prompt, "当前视频起始帧") {
-			audits++
-			if len(a.References) < 4 {
-				t.Fatal("video audit missing real frames and selected image")
-			}
-			for i := 0; i < 3; i++ {
-				if !strings.Contains(a.References[i].File, "video-review") {
-					t.Fatal("audit used storyboard instead of video frame")
-				}
-			}
-		}
+	if e := s.validateFilm(context.Background(), p.Output, p); e != nil {
+		t.Fatal(e)
 	}
-	if audits != len(board(p).Shots) {
-		t.Fatal("missing video audits")
+	wrongDuration := p
+	wrongDuration.Duration += 5
+	if e := s.validateFilm(context.Background(), p.Output, wrongDuration); e == nil {
+		t.Fatal("film duration check was bypassed")
 	}
-	previousOutput, attemptCount := p.Output, len(p.Attempts)
-	if err := s.run(ctx, p.ID, defaults(), "video", "", ""); err != nil {
-		t.Fatal(err)
+	wrongAspect := p
+	wrongAspect.AspectRatio = "16:9"
+	if aspect == "16:9" {
+		wrongAspect.AspectRatio = "9:16"
 	}
-	repeated, _ := s.store.project(p.ID)
-	if repeated.Output != previousOutput || len(repeated.Attempts) != attemptCount {
-		t.Fatal("completed assets were not reused")
+	if e := s.validateFilm(context.Background(), p.Output, wrongAspect); e == nil {
+		t.Fatal("film dimensions check was bypassed")
 	}
+	request(t, s, "GET", "/api/projects/"+p.ID+"/export", nil, 200)
+	t.Log("完整本地模拟成片：", s.media(p.Output))
+}
 
-	probe, e := s.probe(ctx, s.abs(p.Output))
+func TestProviderReceiptIsReused(t *testing.T) {
+	t.Setenv("TEST_PROVIDER_KEY", "fake-test-key")
+	s := testStudio(t)
+	p := createProject(t, s)
+	var hits atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"id":"remote-123"}`))
+	}))
+	defer provider.Close()
+	task := Task{ID: uid(), ProjectID: p.ID, Status: "running", Input: p, Config: defaultSettings()}
+	_, e := s.store.db.Exec("INSERT INTO tasks VALUES(?,?,?,?,?,?)", task.ID, p.ID, "running", jsonBytes(task), jsonBytes(p), jsonBytes(task.Config))
 	if e != nil {
 		t.Fatal(e)
 	}
-	t.Logf("final file=%s duration=%s", s.abs(p.Output), probe.Format.Duration)
-	if output := os.Getenv("LYPIT_DEMO_OUTPUT"); output != "" {
-		b, err := os.ReadFile(s.abs(p.Output))
-		if err != nil {
-			t.Fatal(err)
+	for i := 0; i < 2; i++ {
+		b, e := s.paid(context.Background(), &task, "submit", Endpoint{Base: provider.URL, KeyEnv: "TEST_PROVIDER_KEY"}, "/jobs", "application/json", []byte(`{}`))
+		if e != nil || string(b) != `{"id":"remote-123"}` {
+			t.Fatal("receipt not reused", e, string(b))
 		}
-		if err = os.WriteFile(output, b, 0600); err != nil {
-			t.Fatal(err)
-		}
-		report, err := os.ReadFile(filepath.Join(filepath.Dir(s.abs(p.Output)), "validation.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = os.WriteFile(filepath.Join(filepath.Dir(output), "validation.json"), report, 0600); err != nil {
-			t.Fatal(err)
-		}
+	}
+	if hits.Load() != 1 {
+		t.Fatal("duplicate provider submission", hits.Load())
 	}
 }
 
-func TestDataDirectoryExclusiveLock(t *testing.T) {
+func TestRestartPreservesOriginalInputAndMarksInterrupted(t *testing.T) {
 	dir := t.TempDir()
-	first, e := openStore(dir)
+	st, e := openStore(dir)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if second, e := openStore(dir); e == nil {
-		second.close()
-		t.Fatal("same directory accepted twice")
-	}
-	first.close()
-	reopened, e := openStore(dir)
+	p, e := st.create("重启恢复", "故事", "电影", defaultAspect, defaultDuration)
 	if e != nil {
 		t.Fatal(e)
 	}
-	reopened.close()
-}
-func TestUnknownCostRequiresExplicitConsent(t *testing.T) {
-	s := testStudio(t)
-	p := addProject(t, s)
-	readyAssets(t, s, p.ID)
-	q, e := s.makeQuote(p.ID, "storyboard", "", "")
+	task := Task{ID: uid(), ProjectID: p.ID, Status: "running", Input: p, Config: defaultSettings()}
+	_, e = st.db.Exec("INSERT INTO tasks VALUES(?,?,?,?,?,?)", task.ID, p.ID, "running", jsonBytes(task), jsonBytes(p), jsonBytes(task.Config))
 	if e != nil {
 		t.Fatal(e)
 	}
-	s.store.change(func(st *State) error {
-		sq := st.Quotes[q.ID]
-		sq.Quote.Estimate = nil
-		st.Quotes[q.ID] = sq
-		return nil
-	})
-	if s.confirm(p.ID, q.ID, false) == nil {
-		t.Fatal("unknown cost accepted silently")
+	if e = st.close(); e != nil {
+		t.Fatal(e)
+	}
+	st, e = openStore(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer st.close()
+	got, e := st.task(task.ID)
+	if e != nil || got.Status != "interrupted" || got.Input.ID != p.ID || got.Config.Mode != "mock" {
+		t.Fatal("restart lost input/config", e, got.Status)
 	}
 }
-func TestRevisionPreservesUnaffectedImageRequests(t *testing.T) {
+
+func TestChangingSettingsInvalidatesUnconfirmedQuote(t *testing.T) {
 	s := testStudio(t)
-	p := addProject(t, s)
-	if e := s.run(context.Background(), p.ID, defaults(), "storyboard", "", ""); e != nil {
+	p := createProject(t, s)
+	var q Quote
+	_ = json.Unmarshal(request(t, s, "POST", "/api/projects/"+p.ID+"/quotes", map[string]any{"revision": p.Revision, "stage": "analyze"}, 200), &q)
+	cfg, e := s.store.settings()
+	if e != nil {
 		t.Fatal(e)
 	}
-	before, _ := s.store.project(p.ID)
-	old := board(before)
-	if e := s.run(context.Background(), p.ID, defaults(), "storyboard", "换成夜晚", "s2"); e != nil {
-		t.Fatal(e)
-	}
-	after, _ := s.store.project(p.ID)
-	next := board(after)
-	if next.Version != 2 || old.Shots[0].Image != next.Shots[0].Image || old.Shots[1].Image == next.Shots[1].Image || len(after.Attempts) != len(before.Attempts)+3 {
-		t.Fatal("unrelated images regenerated")
-	}
+	request(t, s, "PUT", "/api/settings", cfg, 200)
+	request(t, s, "POST", "/api/quotes/"+q.ID+"/confirm", map[string]bool{}, 400)
 }

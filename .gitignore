@@ -1,5 +1,8 @@
 # macOS metadata
 .DS_Store
+._*
+Thumbs.db
+Desktop.ini
 
 # Local credentials and installed Skill location
 .env
@@ -31,3 +34,17 @@ run.json
 /web/*.tsbuildinfo
 /server/lypit
 /server/server
+
+# Local release packages, executables and test output
+/dist/
+/releases/
+/server/lypit.exe
+/server/server.exe
+/server/lypit-studio
+/server/lypit-studio.exe
+*.test
+*.test.exe
+*.prof
+coverage.out
+coverage/
+*.log

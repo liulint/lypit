@@ -1,199 +1,270 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/sys/unix"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
-	"time"
+
+	_ "modernc.org/sqlite"
 )
 
+var errConflict = errors.New("内容已变化，请刷新后重试")
+
 type Store struct {
-	mu    sync.Mutex
-	db    *sql.DB
-	lock  *os.File
-	state State
+	db   *sql.DB
+	mu   sync.Mutex
+	lock *os.File
 }
 
-func now() string { return time.Now().UTC().Format(time.RFC3339) }
-func uid() string {
-	b := make([]byte, 12)
-	if _, e := rand.Read(b); e != nil {
-		panic(e)
-	}
-	return hex.EncodeToString(b)
-}
-func hash(v any) string {
-	b, _ := json.Marshal(v)
-	s := sha256.Sum256(b)
-	return hex.EncodeToString(s[:])
-}
-func clone[T any](v T) T { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
-func defaults() Settings {
-	zero := 0.0
-	return Settings{Providers: []Provider{{ID: "demo", Name: "模拟服务 · 不调用付费模型", Adapter: "mock", Models: []Model{{ID: "demo-v1", Capabilities: []string{"text", "vision", "image", "video", "tts"}, ReferenceImages: true, MaxReferences: 9, Structured: true, Audio: true, Sizes: []string{"1024x1536", "480p"}, MinDuration: 4, MaxDuration: 15, Price: &zero, Unit: "request", PriceSource: "本地模拟，无费用", Verified: "2026-10-21", Voice: "demo"}}}}, Bindings: map[string]Binding{"text": {"demo", "demo-v1"}, "vision": {"demo", "demo-v1"}, "image": {"demo", "demo-v1"}, "video": {"demo", "demo-v1"}, "tts": {"demo", "demo-v1"}}}
-}
 func openStore(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
+	if e := os.MkdirAll(dir, 0700); e != nil {
+		return nil, e
 	}
-	lock, lockErr := os.OpenFile(filepath.Join(dir, "studio.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if lockErr != nil {
-		return nil, lockErr
-	}
-	if lockErr = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); lockErr != nil {
-		lock.Close()
-		return nil, fmt.Errorf("数据目录已由另一个后端进程使用")
-	}
-	keepLock := false
-	defer func() {
-		if !keepLock {
-			lock.Close()
-		}
-	}()
-	db, e := sql.Open("sqlite3", filepath.Join(dir, "studio.db")+"?_journal_mode=WAL&_busy_timeout=5000&_synchronous=FULL")
+	l, e := os.OpenFile(filepath.Join(dir, "studio.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if e != nil {
+		return nil, e
+	}
+	if e = lockStoreFile(l); e != nil {
+		l.Close()
+		return nil, errors.New("此数据目录正在被另一个服务使用")
+	}
+	path := filepath.ToSlash(filepath.Join(dir, "studio.db"))
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	uri := url.URL{Scheme: "file", Path: path}
+	params := url.Values{"_pragma": {"journal_mode(WAL)", "busy_timeout(5000)", "foreign_keys(1)", "synchronous(FULL)"}}
+	uri.RawQuery = params.Encode()
+	db, e := sql.Open("sqlite", uri.String())
+	if e != nil {
+		l.Close()
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	if _, e = db.Exec("CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)"); e != nil {
-		db.Close()
-		return nil, e
-	}
-	s := &Store{db: db, lock: lock, state: State{FormatVersion: stateVersion, Settings: defaults(), Projects: map[string]*Project{}, Quotes: map[string]StoredQuote{}}}
-	var body []byte
-	e = db.QueryRow("SELECT body FROM state WHERE id=1").Scan(&body)
-	if e == nil {
-		s.state = State{}
-		e = json.Unmarshal(body, &s.state)
-	} else if e == sql.ErrNoRows {
-		e = s.saveLocked()
-	}
+	s := &Store{db: db, lock: l}
+	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), status TEXT NOT NULL, body TEXT NOT NULL, input TEXT NOT NULL, config TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project_id,status);
+CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), status TEXT NOT NULL, response BLOB, remote_id TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL REFERENCES projects(id), revision INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(project_id,revision));
+PRAGMA user_version=1;`)
 	if e != nil {
-		db.Close()
+		s.close()
 		return nil, e
 	}
-	if s.state.FormatVersion > stateVersion {
-		db.Close()
-		return nil, fmt.Errorf("数据格式较新，不能由当前程序覆盖")
+	_, e = db.Exec("INSERT OR IGNORE INTO settings VALUES(1,?)", jsonBytes(defaultSettings()))
+	if e != nil {
+		s.close()
+		return nil, e
 	}
-	if s.state.FormatVersion < stateVersion {
-		if e = backupBeforeMigration(s, dir); e != nil {
-			db.Close()
-			return nil, e
-		}
-		if e = migrateState(&s.state); e != nil {
-			db.Close()
-			return nil, e
-		}
-		migrated, err := json.Marshal(s.state)
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		tx, err := db.Begin()
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		if _, err = tx.Exec("UPDATE state SET body=? WHERE id=1", migrated); err != nil {
-			tx.Rollback()
-			db.Close()
-			return nil, err
-		}
-		if err = tx.Commit(); err != nil {
-			db.Close()
-			return nil, err
-		}
+	// A process interruption never silently resubmits an accepted request.
+	jobs, e := s.tasks("")
+	if e != nil {
+		s.close()
+		return nil, e
 	}
-	for id, probe := range s.state.Probes {
-		if probe.State == "running" {
-			probe.State = "interrupted"
-			probe.Error = "服务中断；只允许恢复已保存响应，不重提 CLI"
-			s.state.Probes[id] = probe
-		}
-	}
-	for _, p := range s.state.Projects {
-		if p.Status == "running" {
-			p.Status = "interrupted"
-			p.Error = "服务中断；恢复仅继续未提交工作和已知任务，不会重提未知请求"
-			for i := range p.Tasks {
-				if p.Tasks[i].State == "running" {
-					p.Tasks[i].State = "interrupted"
-				}
+	for _, t := range jobs {
+		if t.Status == "running" || t.Status == "queued" {
+			t.Status = "interrupted"
+			t.Message = "服务已重启，请恢复原任务；已提交的请求不会自动重发"
+			if e = s.saveTask(t); e != nil {
+				s.close()
+				return nil, e
 			}
 		}
 	}
-	if e = s.saveLocked(); e != nil {
-		db.Close()
-		return nil, e
-	}
-	keepLock = true
 	return s, nil
 }
-func (s *Store) saveLocked() error {
-	b, e := json.Marshal(s.state)
+func (s *Store) close() error {
+	e := s.db.Close()
+	_ = unlockStoreFile(s.lock)
+	_ = s.lock.Close()
+	return e
+}
+func (s *Store) project(id string) (Project, error) {
+	var p Project
+	var b []byte
+	e := s.db.QueryRow("SELECT body FROM projects WHERE id=?", id).Scan(&b)
+	if e != nil {
+		return p, e
+	}
+	e = json.Unmarshal(b, &p)
+	return p, e
+}
+func (s *Store) projects() ([]Project, error) {
+	rows, e := s.db.Query("SELECT body FROM projects ORDER BY rowid DESC")
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []Project{}
+	for rows.Next() {
+		var b []byte
+		var p Project
+		if e = rows.Scan(&b); e != nil {
+			return nil, e
+		}
+		if e = json.Unmarshal(b, &p); e != nil {
+			return nil, e
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+func (s *Store) settings() (Settings, error) {
+	v := defaultSettings()
+	var b []byte
+	e := s.db.QueryRow("SELECT body FROM settings WHERE id=1").Scan(&b)
+	if e == nil {
+		e = json.Unmarshal(b, &v)
+	}
+	return upgradeCurrentRegistry(withVendorRegistry(v)), e
+}
+func (s *Store) saveProject(tx *sql.Tx, p Project) error {
+	if _, e := tx.Exec("INSERT INTO projects(id,body) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body", p.ID, jsonBytes(p)); e != nil {
+		return e
+	}
+	_, e := tx.Exec("INSERT INTO history(project_id,revision,body) VALUES(?,?,?)", p.ID, p.Revision, jsonBytes(p))
+	return e
+}
+func (s *Store) task(id string) (Task, error) {
+	var t Task
+	var body, input, config []byte
+	e := s.db.QueryRow("SELECT body,input,config FROM tasks WHERE id=?", id).Scan(&body, &input, &config)
+	if e != nil {
+		return t, e
+	}
+	if e = json.Unmarshal(body, &t); e != nil {
+		return t, e
+	}
+	if e = json.Unmarshal(input, &t.Input); e != nil {
+		return t, e
+	}
+	e = json.Unmarshal(config, &t.Config)
+	return t, e
+}
+func (s *Store) tasks(pid string) ([]Task, error) {
+	rows, e := s.db.Query("SELECT body FROM tasks WHERE (?='' OR project_id=?) ORDER BY rowid DESC", pid, pid)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []Task{}
+	for rows.Next() {
+		var b []byte
+		var t Task
+		if e = rows.Scan(&b); e != nil {
+			return nil, e
+		}
+		if e = json.Unmarshal(b, &t); e != nil {
+			return nil, e
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+func (s *Store) saveTask(t Task) error {
+	t.Updated = now()
+	_, e := s.db.Exec("UPDATE tasks SET status=?,body=? WHERE id=?", t.Status, jsonBytes(t), t.ID)
+	return e
+}
+func (s *Store) busy(pid string) bool {
+	var count int
+	e := s.db.QueryRow("SELECT count(*) FROM tasks WHERE project_id=? AND status IN ('running','queued','interrupted','failed','cancelled')", pid).Scan(&count)
+	return e != nil || count > 0
+}
+func (s *Store) transaction(fn func(*sql.Tx) error) error {
+	tx, e := s.db.Begin()
 	if e != nil {
 		return e
 	}
-	_, e = s.db.Exec("INSERT INTO state(id,body) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body", b)
-	return e
-}
-
-// Roll back the in-memory state too when durable persistence fails.
-func (s *Store) change(fn func(*State) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	before := clone(s.state)
-	if e := fn(&s.state); e != nil {
-		s.state = before
+	defer tx.Rollback()
+	if e = fn(tx); e != nil {
 		return e
 	}
-	if e := s.saveLocked(); e != nil {
-		s.state = before
-		return e
-	}
-	return nil
+	return tx.Commit()
 }
-func (s *Store) project(id string) (Project, error) {
+func (s *Store) update(id string, revision int, fn func(*Project) error) (Project, error) {
+	return s.updateScoped(id, revision, false, fn)
+}
+func (s *Store) updateScoped(id string, revision int, review bool, fn func(*Project) error) (Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := s.state.Projects[id]
-	if p == nil {
-		return Project{}, fmt.Errorf("项目不存在")
+	p, e := s.project(id)
+	if e != nil {
+		return p, e
 	}
-	return clone(*p), nil
+	if p.Revision != revision {
+		return p, errConflict
+	}
+	if s.operationBusy(id, review) {
+		return p, errors.New("请先完成、恢复或放弃当前任务")
+	}
+	if e = fn(&p); e != nil {
+		return p, e
+	}
+	p.Revision++
+	p.Updated = now()
+	e = s.transaction(func(tx *sql.Tx) error { return s.saveProject(tx, p) })
+	return p, e
 }
-func (s *Store) settings() Settings { s.mu.Lock(); defer s.mu.Unlock(); return clone(s.state.Settings) }
-func (s *Store) update(id string, fn func(*Project)) error {
-	return s.change(func(st *State) error {
-		p := st.Projects[id]
-		if p == nil {
-			return fmt.Errorf("项目不存在")
+func decodeBody[T any](b []byte) (T, error) { var v T; e := json.Unmarshal(b, &v); return v, e }
+func (s *Store) quote(id string) (Quote, error) {
+	var b []byte
+	e := s.db.QueryRow("SELECT body FROM quotes WHERE id=?", id).Scan(&b)
+	if e != nil {
+		return Quote{}, e
+	}
+	return decodeBody[Quote](b)
+}
+func (s *Store) history(id string) ([]Project, error) {
+	rows, e := s.db.Query("SELECT body FROM history WHERE project_id=? ORDER BY revision DESC LIMIT 50", id)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []Project{}
+	for rows.Next() {
+		var b []byte
+		var p Project
+		if e = rows.Scan(&b); e != nil {
+			return nil, e
 		}
-		fn(p)
-		return nil
-	})
-}
-func board(p Project) *Board {
-	if len(p.Boards) == 0 {
-		return nil
+		if e = json.Unmarshal(b, &p); e != nil {
+			return nil, e
+		}
+		out = append(out, p)
 	}
-	b := p.Boards[len(p.Boards)-1]
-	return &b
+	return out, rows.Err()
 }
-
-func (s *Store) close() error {
-	err := s.db.Close()
-	if s.lock != nil {
-		_ = s.lock.Close()
+func (s *Store) create(title, idea, style, aspect string, duration int, modes ...string) (Project, error) {
+	if e := validateSpec(aspect, duration); e != nil {
+		return Project{}, e
 	}
-	return err
+	mode := "dialogue"
+	if len(modes) > 0 {
+		mode = modes[0]
+	}
+	if e := validateAudioMode(mode); e != nil {
+		return Project{}, e
+	}
+	p := Project{AudioMode: mode, ID: uid(), Title: title, Idea: idea, Style: style, AspectRatio: aspect, Duration: duration, Revision: 1, Created: now(), Updated: now(), Assets: []Asset{}, Shots: []Shot{}, Mode: "mock"}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := s.transaction(func(tx *sql.Tx) error { return s.saveProject(tx, p) })
+	return p, e
+}
+func dbError(e error) error {
+	if errors.Is(e, sql.ErrNoRows) {
+		return fmt.Errorf("项目或记录不存在")
+	}
+	return e
 }

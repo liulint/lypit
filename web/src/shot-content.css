@@ -1,0 +1,31 @@
+.shot-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  margin-top: 20px;
+}
+.shot-content-grid.comparison {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.shot-content-grid section > strong {
+  display: block;
+  margin-bottom: 12px;
+}
+.shot-content-grid label {
+  display: block;
+  margin-top: 14px;
+}
+.shot-content-grid label .ant-input {
+  margin-top: 6px;
+}
+.shot-content-grid p {
+  margin: 12px 0;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 680px) {
+  .shot-content-grid.comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
