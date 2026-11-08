@@ -24,11 +24,18 @@ func TestPackagedFrontendServesFromPortableRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('studio')"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for route, want := range map[string]string{"/": "<html>studio</html>", "/assets/app.js": "console.log('studio')"} {
+	for route, want := range map[string]string{"/": "<html>studio</html>", "/vendors": "<html>studio</html>", "/assets/app.js": "console.log('studio')"} {
 		w := httptest.NewRecorder()
 		s.router().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+route, nil))
 		if w.Code != 200 || w.Body.String() != want {
 			t.Fatal("portable frontend failed", route, w.Code, w.Body.String())
+		}
+	}
+	for _, route := range []string{"/assets/ServiceSettings-old.js", "/assets/old.css"} {
+		w := httptest.NewRecorder()
+		s.router().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+route, nil))
+		if w.Code != http.StatusNotFound || strings.Contains(w.Body.String(), "<html>") {
+			t.Fatal("missing asset received SPA document", route, w.Code, w.Body.String())
 		}
 	}
 	for _, path := range []string{"C:/private.png", "file.png:stream.jpg", "dir\\private.png"} {

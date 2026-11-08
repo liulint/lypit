@@ -377,6 +377,7 @@ func (s *Studio) putSettings(c *gin.Context) {
 	switch input.Section {
 	case "vendors":
 		v.Mode, v.Text, v.Image, v.Video, v.Voice = old.Mode, old.Text, old.Image, old.Video, old.Voice
+		v.Music = old.Music
 		v.ImageConcurrency, v.VideoConcurrency = old.ImageConcurrency, old.VideoConcurrency
 	case "services":
 		v.Vendors = old.Vendors

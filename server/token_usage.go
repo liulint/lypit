@@ -122,6 +122,15 @@ func (s *Studio) usageRecords() ([]UsageRecord, error) {
 		if t.Stage == "analyze" || t.Stage == "board_plan" || t.Stage == "shot_rewrite" {
 			cap = "text"
 		}
+		if key == "creative" {
+			cap = "text"
+		}
+		if key == "voice" {
+			cap = "voice"
+		}
+		if key == "music" {
+			cap = "music"
+		}
 		if strings.HasPrefix(key, "video-") {
 			cap = "video"
 		}

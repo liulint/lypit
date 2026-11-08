@@ -109,6 +109,9 @@ func (s *Studio) cliImage(ctx context.Context, t *Task, key, prompt string, refs
 		if sheet {
 			shape = "正方形偶数尺寸，建议1024x1024；严格2×2四视图，不要分别生成四张"
 		}
+		if !sheet && t.ImageAspect != "" {
+			shape = fmt.Sprintf("严格%s，以最终图片实际像素宽高为准；禁止使用1024x1536或1536x1024替代，不裁切，不修改原始产物。若工具不能输出该画幅，停止并明确报告", t.ImageAspect)
+		}
 		pathNote := "本次无参考图，不传 referenced_image_paths。"
 		if len(referenceBytes) > 0 {
 			pathNote = "工具的 referenced_image_paths 最多5条，必须仅使用本次附带的 reference-1.png 至 reference-" + fmt.Sprint(len(referenceBytes)) + ".png 路径，不得额外添加原始素材路径。"
@@ -147,7 +150,7 @@ func (s *Studio) cliImage(ctx context.Context, t *Task, key, prompt string, refs
 			return nil, errors.New("Codex生图执行未完成；请检查本机登录、imagegen技能与内置生图工具权限。已保留记录，禁止自动重跑或切换API")
 		}
 	}
-	b, err := collectCLIImage(output, intent, t.Input, key, sheet)
+	b, err := collectCLIImage(output, intent, t.Input, key, sheet, t.ImageAspect)
 	if err != nil {
 		return nil, cliImageFailureReason(dir, err)
 	}
@@ -157,7 +160,7 @@ func (s *Studio) cliImage(ctx context.Context, t *Task, key, prompt string, refs
 	return b, nil
 }
 
-func collectCLIImage(receiptPath string, intent cliImageIntent, p Project, key string, sheet bool) ([]byte, error) {
+func collectCLIImage(receiptPath string, intent cliImageIntent, p Project, key string, sheet bool, strictAspect ...string) ([]byte, error) {
 	b, err := readCLIFile(receiptPath)
 	var receipt cliImageReceipt
 	if err != nil || json.Unmarshal(b, &receipt) != nil || receipt.Source == "" {
@@ -192,7 +195,7 @@ func collectCLIImage(receiptPath string, intent cliImageIntent, p Project, key s
 		if cfg.Width != cfg.Height || cfg.Width%2 != 0 {
 			return nil, errors.New("CLI设定图必须为正方形偶数尺寸，禁止静默缩放")
 		}
-	} else if (landscapeImage(p, key) && cfg.Width <= cfg.Height) || (!landscapeImage(p, key) && cfg.Width >= cfg.Height) {
+	} else if (len(strictAspect) == 0 || strictAspect[0] == "") && ((landscapeImage(p, key) && cfg.Width <= cfg.Height) || (!landscapeImage(p, key) && cfg.Width >= cfg.Height)) {
 		return nil, errors.New("CLI图片横竖方向不符合本次制作要求，禁止自动付费重试")
 	}
 	if _, _, err = image.Decode(bytes.NewReader(b)); err != nil {

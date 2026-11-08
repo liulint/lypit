@@ -107,6 +107,21 @@ func (s *Studio) remoteImage(ctx context.Context, t *Task, key, prompt string, r
 	if ep.Transport == "cli" {
 		return s.cliImage(ctx, t, key, prompt, refs, sheet, ep)
 	}
+	if strings.HasPrefix(t.Stage, "drama_") {
+		var state string
+		var receipt []byte
+		err := s.store.db.QueryRow("SELECT status,response FROM attempts WHERE id=?", t.ID+":"+key).Scan(&state, &receipt)
+		if err == nil {
+			if state != "received" {
+				return nil, errors.New("原图片提交结果未知，已阻止重新提交，请核对原回执")
+			}
+			return decodeImageReceipt(ctx, receipt)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
+
 	var referenceBytes [][]byte
 	if t.Stage == "board_edit" || (t.ReferencePolicyVersion == referencePlanVersion || t.ReferencePolicyVersion == fourViewPolicyVersion) || t.ImageReferencePlan != nil {
 		plan, prepared, err := s.prepareTaskReferences(t, key, refs)
@@ -182,18 +197,20 @@ func (s *Studio) remoteImage(ctx context.Context, t *Task, key, prompt string, r
 	if e != nil {
 		return nil, e
 	}
+	return decodeImageReceipt(ctx, b)
+}
+func decodeImageReceipt(ctx context.Context, b []byte) ([]byte, error) {
 	var v struct {
 		Data []struct {
 			B64 string `json:"b64_json"`
 			URL string `json:"url"`
 		} `json:"data"`
 	}
-	if e = json.Unmarshal(b, &v); e != nil || len(v.Data) != 1 {
+	if e := json.Unmarshal(b, &v); e != nil || len(v.Data) != 1 {
 		return nil, errors.New("生图响应必须包含唯一图片")
 	}
 	if v.Data[0].B64 != "" {
-		b, e = base64.StdEncoding.DecodeString(v.Data[0].B64)
-		return b, e
+		return base64.StdEncoding.DecodeString(v.Data[0].B64)
 	}
 	if v.Data[0].URL != "" {
 		return download(ctx, v.Data[0].URL, 24<<20)
@@ -358,7 +375,7 @@ func (s *Studio) remoteVideo(ctx context.Context, t *Task, q Shot) (string, erro
 }
 
 func videoRequest(p Project, q Shot, model string, img []byte) map[string]any {
-	return map[string]any{"model": model, "content": []map[string]any{{"type": "text", "text": videoPrompt(p, q)}, {"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(img)}, "role": "reference_image"}}, "duration": q.Duration, "ratio": projectAspect(p), "resolution": "480p", "generate_audio": dialogueMode(p)}
+	return map[string]any{"model": model, "content": []map[string]any{{"type": "text", "text": videoPrompt(p, q)}, {"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(img)}, "role": "reference_image"}}, "duration": q.Duration, "ratio": projectAspect(p), "resolution": videoResolution(p.VideoResolution), "generate_audio": dialogueMode(p)}
 }
 
 func taskVideoRequest(t Task, q Shot, model string, img []byte) map[string]any {

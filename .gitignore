@@ -28,7 +28,11 @@ run.json
 
 # Local studio
 /data/
+/data-archive-*/
+/data-drama-new-*/
 /server/data/
+/server/data-archive-*/
+/server/data-drama-new-*/
 /web/node_modules/
 /web/dist/
 /web/*.tsbuildinfo
@@ -48,3 +52,7 @@ run.json
 coverage.out
 coverage/
 *.log
+
+# Python caches from bundled Drama Skills utilities
+__pycache__/
+*.py[cod]

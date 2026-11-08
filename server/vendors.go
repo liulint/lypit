@@ -17,6 +17,8 @@ func endpointFor(v Settings, capability string) Endpoint {
 		return v.Image
 	case "video":
 		return v.Video
+	case "music":
+		return v.Music
 	case "voice":
 		return v.Voice
 	}
@@ -30,12 +32,14 @@ func setEndpoint(v *Settings, capability string, ep Endpoint) {
 		v.Image = ep
 	case "video":
 		v.Video = ep
+	case "music":
+		v.Music = ep
 	case "voice":
 		v.Voice = ep
 	}
 }
 
-var capabilities = []string{"text", "image", "video", "voice"}
+var capabilities = []string{"text", "image", "video", "voice", "music"}
 
 // Upgrade the old endpoint layout in memory. Existing task snapshots retain their exact old values.
 func withVendorRegistry(v Settings) Settings {
@@ -47,6 +51,9 @@ func withVendorRegistry(v Settings) Settings {
 	names := map[string]string{"text": "文本服务", "image": "图片服务", "video": "视频服务", "voice": "旁白服务"}
 	for _, cap := range capabilities {
 		ep := endpointFor(v, cap)
+		if cap == "music" && ep.VendorID == "" {
+			continue
+		}
 		protocol := "openai"
 		if cap == "video" {
 			protocol = "ark"
@@ -74,6 +81,8 @@ func vendorCapabilities(v Vendor) []string {
 		return []string{"text"}
 	}
 	switch v.Kind {
+	case "minimax":
+		return []string{"music"}
 	case "ark":
 		return []string{"text", "video"}
 	case "bailian":
@@ -123,13 +132,16 @@ func validateRegistry(v *Settings) error {
 	for i := range v.Vendors {
 		p := &v.Vendors[i]
 		p.Name = strings.TrimSpace(p.Name)
-		if p.Kind != "" && p.Kind != "codex" && p.Kind != "claude" && p.Kind != "ark" && p.Kind != "bailian" && p.Kind != "custom" {
+		if p.Kind != "" && p.Kind != "codex" && p.Kind != "claude" && p.Kind != "ark" && p.Kind != "bailian" && p.Kind != "custom" && p.Kind != "minimax" {
 			return errors.New("未知厂商类型")
 		}
 		if p.Kind == "codex" || p.Kind == "claude" {
 			if p.Type != "cli" || p.CLI != p.Kind {
 				return errors.New("厂商与CLI类型不一致")
 			}
+		}
+		if p.Kind == "minimax" && (p.Type != "api" || p.Protocol != "minimax") {
+			return errors.New("MiniMax音乐连接协议不一致")
 		}
 		if p.Kind == "ark" && (p.Type != "api" || p.Protocol != "ark") {
 			return errors.New("方舟连接协议不一致")
@@ -149,7 +161,7 @@ func validateRegistry(v *Settings) error {
 		seen[p.ID] = true
 		switch p.Type {
 		case "api":
-			if p.Protocol != "openai" && p.Protocol != "ark" {
+			if p.Protocol != "openai" && p.Protocol != "ark" && p.Protocol != "minimax" {
 				return errors.New("不支持的远程API协议")
 			}
 			if p.KeyMode != "" && p.KeyMode != "local" && p.KeyMode != "env" {

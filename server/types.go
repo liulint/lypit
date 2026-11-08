@@ -50,30 +50,31 @@ type Shot struct {
 	Video             string               `json:"video,omitempty"`
 }
 type Project struct {
-	PlanVersion   int     `json:"plan_version,omitempty"`
-	PlanApproved  bool    `json:"plan_approved,omitempty"`
-	PlannedShots  []Shot  `json:"planned_shots,omitempty"`
-	PreviousShots []Shot  `json:"previous_shots,omitempty"`
-	AudioMode     string  `json:"audio_mode"`
-	ID            string  `json:"id"`
-	Title         string  `json:"title"`
-	Idea          string  `json:"idea"`
-	Script        string  `json:"script"`
-	Style         string  `json:"style"`
-	AspectRatio   string  `json:"aspect_ratio"`
-	Duration      int     `json:"duration"`
-	Revision      int     `json:"revision"`
-	Created       string  `json:"created"`
-	Updated       string  `json:"updated"`
-	Archived      bool    `json:"archived"`
-	Analyzed      bool    `json:"analyzed"`
-	AssetsLocked  bool    `json:"assets_locked"`
-	BoardsLocked  bool    `json:"boards_locked"`
-	Assets        []Asset `json:"assets"`
-	Shots         []Shot  `json:"shots"`
-	Output        string  `json:"output,omitempty"`
-	Voice         string  `json:"voice,omitempty"`
-	Mode          string  `json:"mode"`
+	VideoResolution string  `json:"video_resolution,omitempty"`
+	PlanVersion     int     `json:"plan_version,omitempty"`
+	PlanApproved    bool    `json:"plan_approved,omitempty"`
+	PlannedShots    []Shot  `json:"planned_shots,omitempty"`
+	PreviousShots   []Shot  `json:"previous_shots,omitempty"`
+	AudioMode       string  `json:"audio_mode"`
+	ID              string  `json:"id"`
+	Title           string  `json:"title"`
+	Idea            string  `json:"idea"`
+	Script          string  `json:"script"`
+	Style           string  `json:"style"`
+	AspectRatio     string  `json:"aspect_ratio"`
+	Duration        int     `json:"duration"`
+	Revision        int     `json:"revision"`
+	Created         string  `json:"created"`
+	Updated         string  `json:"updated"`
+	Archived        bool    `json:"archived"`
+	Analyzed        bool    `json:"analyzed"`
+	AssetsLocked    bool    `json:"assets_locked"`
+	BoardsLocked    bool    `json:"boards_locked"`
+	Assets          []Asset `json:"assets"`
+	Shots           []Shot  `json:"shots"`
+	Output          string  `json:"output,omitempty"`
+	Voice           string  `json:"voice,omitempty"`
+	Mode            string  `json:"mode"`
 }
 type Endpoint struct {
 	KeyMode      string `json:"key_mode,omitempty"`
@@ -87,6 +88,7 @@ type Endpoint struct {
 	KeyEnv       string `json:"key_env"`
 }
 type Settings struct {
+	Music            Endpoint          `json:"music"`
 	PromptTemplates  map[string]string `json:"prompt_templates,omitempty"`
 	ImageConcurrency int               `json:"image_concurrency,omitempty"`
 	VideoConcurrency int               `json:"video_concurrency,omitempty"`
@@ -151,6 +153,9 @@ type Quote struct {
 	Duration                   int                      `json:"duration"`
 }
 type Task struct {
+	// Derived only from the immutable DramaProduction snapshot at execution.
+	ImageAspect            string             `json:"-"`
+	CreativePrompt         string             `json:"-"`
 	PromptTemplatesVersion int                `json:"prompt_templates_version,omitempty"`
 	StoryDirectionVersion  int                `json:"story_direction_version,omitempty"`
 	Rewrite                *ShotRewriteResult `json:"rewrite,omitempty"`

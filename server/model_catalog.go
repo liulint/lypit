@@ -101,6 +101,8 @@ func upgradeCurrentRegistry(v Settings) Settings {
 func inferredCapabilities(id string) []string {
 	id = strings.ToLower(id)
 	switch {
+	case strings.HasPrefix(id, "music-"):
+		return []string{"music"}
 	case strings.Contains(id, "embedding"), strings.Contains(id, "rerank"), strings.Contains(id, "whisper"), strings.Contains(id, "asr"):
 		return []string{"other"}
 	case strings.Contains(id, "seedance"), strings.HasPrefix(id, "wan"), strings.Contains(id, "video"):
@@ -225,6 +227,11 @@ func (s *Studio) vendorModels(c *gin.Context) {
 
 func fetchModelCatalog(ctx context.Context, v Vendor, secret string, transport http.RoundTripper) (ModelCatalog, error) {
 	result := ModelCatalog{Models: []CatalogModel{}, Source: "厂商接口", Updated: time.Now().UTC()}
+	if v.Kind == "minimax" {
+		result.Source = "MiniMax Music官方协议 · 2026-11-08核对 · 参考价未知"
+		result.Models = []CatalogModel{describeModel(v, "music-3.0", "Music 3.0 · 纯音乐", []string{"music"})}
+		return result, nil
+	}
 	if err := validEndpoint(Endpoint{Base: v.Base, KeyMode: "local"}); err != nil {
 		return result, err
 	}

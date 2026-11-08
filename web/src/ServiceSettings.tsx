@@ -29,7 +29,7 @@ import {
 import { Badge, Button, Field, Modal } from "./ui";
 import { ModelPriceDetails, modelPriceSummary } from "./ModelPricing";
 
-type Capability = "text" | "image" | "video" | "voice";
+type Capability = "text" | "image" | "video" | "voice" | "music";
 type ToolSystem = {
   tools: Record<string, boolean>;
   installer?: {
@@ -49,7 +49,8 @@ const capabilities: { key: Capability; name: string; description: string }[] = [
     description: "角色、设定图、场景道具与分镜图",
   },
   { key: "video", name: "视频生成", description: "按已确认分镜生成镜头视频" },
-  { key: "voice", name: "统一旁白", description: "中文旁白与WAV音轨" },
+  { key: "voice", name: "配音", description: "逐段台词配音与WAV音轨" },
+  { key: "music", name: "音乐生成", description: "整集时间线纯音乐，预览报价后执行" },
 ];
 export function vendorSupports(v: Vendor, key: Capability, supported?: Record<string, string[]>) {
   return supported?.[v.id]?.includes(key) ?? (v.type === "cli" && (key === "text" || (v.cli === "codex" && key === "image")));
@@ -59,6 +60,7 @@ const presets = [
  { value: "claude", label: "Claude Code", type: "cli", cli: "claude" },
  { value: "ark", label: "火山方舟（豆包）", type: "api", protocol: "ark", base: "https://ark.cn-beijing.volces.com/api/v3" },
  { value: "bailian", label: "阿里百炼（千问）", type: "api", protocol: "openai", base: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+ { value: "minimax", label: "MiniMax（音乐）", type: "api", protocol: "minimax", base: "https://api.minimax.io/v1" },
  { value: "custom", label: "自定义兼容 API", type: "api", protocol: "openai", base: "https://api.openai.com/v1" },
 ] as const;
 const emptyVendor = (): Vendor => ({
@@ -109,7 +111,7 @@ export default function ServiceSettings({
   }
   useEffect(() => {
     if (page === "services") {
-      const ids = new Set(capabilities.map(c => settings[c.key].vendor_id).filter(Boolean));
+      const ids = new Set(capabilities.map(c => settings[c.key]?.vendor_id).filter(Boolean));
       for (const id of ids) if (id) void loadModels(id);
     }
   }, []);
@@ -199,7 +201,7 @@ export default function ServiceSettings({
       return;
     }
     const incompatible = capabilities.filter(
-      (c) => v[c.key].vendor_id === item.id && item.type === "cli" && !vendorSupports(item, c.key),
+      (c) => v[c.key]?.vendor_id === item.id && item.type === "cli" && !vendorSupports(item, c.key),
     );
     if (incompatible.length) {
       setDraftError(
@@ -247,7 +249,7 @@ export default function ServiceSettings({
         {vendors.length === 0 && <p>还没有厂商，点击“新增厂商”连接本地 CLI 或远程 API。</p>}
         {vendors.map(p => {
           const changed = JSON.stringify(p) !== JSON.stringify(settings.vendors.find(old => old.id === p.id)) || !!apiKeys[p.id];
-          const used = capabilities.filter(c => v[c.key].vendor_id === p.id);
+          const used = capabilities.filter(c => v[c.key]?.vendor_id === p.id);
           const cat = catalogs[p.id];
           return <article className="vendor-card" key={p.id}>
             <div className="vendor-card-heading"><div className="vendor-name">
@@ -280,18 +282,18 @@ export default function ServiceSettings({
     <>
       <div className="vendor-section-heading">
         <div>
-          <h2>服务配置</h2>
+          <h2>制作能力</h2>
           <p>
-            同一个厂商可以复用；各能力独立选择模型，可混合使用本地CLI与远程API。
+            按制作环节绑定厂商和模型，同一厂商可用于多个环节。
           </p>
         </div>
       </div>
       <div className="settings-grid">
         {capabilities.map((cap) => {
-          const binding = v[cap.key];
+          const binding = v[cap.key] || {model:""};
           const vendor = vendors.find((p) => p.id === binding.vendor_id);
           return (
-            <section className="panel" key={cap.key}>
+            <section className="panel capability-card" key={cap.key}>
               <div className="panel-heading">
                 <div>
                   <h2>{cap.name}</h2>
@@ -337,7 +339,7 @@ export default function ServiceSettings({
                 </div>
                 {(vendor.type === "cli" || manual[cap.key]) && <Field label={`${cap.name}模型 ID`}><Input value={binding.model || ""} disabled={busy} onChange={e => updateBinding(cap.key, {model: e.target.value})} placeholder={vendor.type === "cli" ? "留空则沿用 CLI 默认模型" : "输入精确模型 ID（未验证）"} /></Field>}
                 <>
-                  {vendor.type === "cli" && catalogs[vendor.id] && <p>来源：{catalogs[vendor.id].source}；清空模型则沿用 CLI 默认配置。列表不代表账户权限已验证。</p>}
+                  {vendor.type === "cli" && catalogs[vendor.id] && <details className="service-catalog-note"><summary>模型目录说明</summary><p>来源：{catalogs[vendor.id].source}；清空模型则沿用 CLI 默认配置。列表不代表账户权限已验证。</p></details>}
                   {(catalogErrors[vendor.id] || catalogs[vendor.id]?.error) && <Alert type="warning" title={catalogErrors[vendor.id] || catalogs[vendor.id]?.error} />}
                   {catalogs[vendor.id]?.stale && <p>当前显示过期缓存，可重试刷新。</p>}
                   {!catalogLoading[vendor.id] && catalogs[vendor.id]?.models.filter(m => m.services.includes(cap.key)).length === 0 && <p>此目录暂无本服务可用模型，可手动填写模型 ID。</p>}
@@ -351,7 +353,7 @@ export default function ServiceSettings({
                 <Alert
                   type="info"
                   showIcon
-                  title={cap.key === "image" ? "通过 Codex 的 imagegen 技能调用内置生图工具，支持参考图。模型 ID 为 Codex 执行模型；费用未知，制作前需确认报价。" : "使用本机CLI账户执行文本规划；费用未知，制作前仍需确认报价。"}
+                  title={cap.key === "image" ? "通过 Codex 的 imagegen 技能调用内置生图工具，支持参考图。模型 ID 为 Codex 执行模型；费用未知，制作前需确认报价。" : "使用本机CLI账户执行文字任务；点击生成即调用一次，不走报价。"}
                 />
               )}
             </section>
@@ -366,12 +368,11 @@ export default function ServiceSettings({
     </>
   );
   return (
-    <>
+    <div className={`service-settings-page service-settings-${page}`}>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">PROVIDERS & MODELS</div>
           <h1>{page === "vendors" ? "厂商管理" : "服务配置"}</h1>
-          <p>厂商负责接入方式与凭据，制作能力负责厂商绑定和模型选择。</p>
+          <p>{page === "vendors" ? "管理本地 CLI 与远程 API 的连接和凭据。" : "为文字、图片、视频与声音选择制作服务。"}</p>
         </div>
         <div className="inline-actions">
           {dirty && <Tag color="gold">有未保存修改</Tag>}
@@ -385,14 +386,14 @@ export default function ServiceSettings({
           </Button>
         </div>
       </div>
-      {page === "services" && <section className="panel">
-        <h2>生成并发</h2>
-        <p>每个作品同时生成的分镜图片与视频数量，分别默认 2，可设为 1～8。请按厂商限流和本机性能调整。</p>
-        <div className="form-grid">
+      {page === "services" && <section className="panel service-concurrency">
+        <div className="service-section-intro"><h2>生成并发</h2>
+        <p>每个作品同时生成的数量，按厂商限流和本机性能调整。</p></div>
+        <div className="service-concurrency-fields">
           <Field label="图片并发数"><InputNumber aria-label="图片并发数" min={1} max={8} precision={0} disabled={busy} value={v.image_concurrency ?? 2} onChange={n => setV({...v, image_concurrency: n ?? 2})} /></Field>
           <Field label="视频并发数"><InputNumber aria-label="视频并发数" min={1} max={8} precision={0} disabled={busy} value={v.video_concurrency ?? 2} onChange={n => setV({...v, video_concurrency: n ?? 2})} /></Field>
         </div>
-        <small>保存后用于新确认的任务；已确认任务保留原并发配置。修改配置后需重新报价。</small>
+        <small>范围 1～8，默认 2。仅用于新确认的任务；已确认任务保留原配置。修改后需重新报价。</small>
       </section>}
       <section className="panel vendor-registry">
         {page === "vendors" ? vendorPanel : bindingsPanel}
@@ -494,7 +495,7 @@ export default function ServiceSettings({
                 type="info"
                 showIcon
                 title={draft.cli === "claude" ? "支持文本规划" : "支持文本规划与生图"}
-                description="复用本机登录与CLI配置。Codex 生图需要可用的 imagegen 技能与内置生图工具，支持参考图；不会自动切换 API。保存不触发生成，制作需确认费用未知的报价。"
+                description="复用本机登录与CLI配置。Codex 生图需要可用的 imagegen 技能与内置生图工具，支持参考图；不会自动切换 API。保存不触发生成，文字点击生成即调用一次，媒体制作需确认报价。"
               />
             </>
           ) : (
@@ -563,6 +564,6 @@ export default function ServiceSettings({
           )}
         </Modal>
       )}
-    </>
+    </div>
   );
 }

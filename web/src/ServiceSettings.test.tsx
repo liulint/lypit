@@ -229,10 +229,10 @@ it("disables optional narration explicitly and restores its configuration when e
   const fetch = vi.fn(async (_path: string) => new Response(JSON.stringify({models:[],tools:{},source:"测试",updated:new Date().toISOString(),stale:false})));
   vi.stubGlobal("fetch", fetch);
   const {unmount} = render(<StudioProvider><ServiceSettings settings={settings} credentials={{}} supported={{voice:["voice"]}} busy={false} save={save} /></StudioProvider>);
-  expect(screen.getByRole("combobox", {name:"统一旁白模型"})).toBeTruthy();
-  fireEvent.mouseDown(screen.getByRole("combobox", {name:"统一旁白厂商"}));
+  expect(screen.getByRole("combobox", {name:"配音模型"})).toBeTruthy();
+  fireEvent.mouseDown(screen.getByRole("combobox", {name:"配音厂商"}));
   fireEvent.click(await screen.findByRole("option", {name:"无（不使用统一旁白）"}));
-  expect(screen.queryByRole("combobox", {name:"统一旁白模型"})).toBeNull();
+  expect(screen.queryByRole("combobox", {name:"配音模型"})).toBeNull();
   expect(screen.getByText("未启用统一旁白，无需配置旁白模型和 API Key。")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", {name:"保存配置"}));
   const saved = save.mock.calls[0][0];
@@ -241,12 +241,12 @@ it("disables optional narration explicitly and restores its configuration when e
   unmount();
   fetch.mockClear();
   render(<StudioProvider><ServiceSettings settings={saved} credentials={{}} supported={{voice:["voice"]}} busy={false} save={save} /></StudioProvider>);
-  expect(screen.queryByRole("combobox", {name:"统一旁白模型"})).toBeNull();
+  expect(screen.queryByRole("combobox", {name:"配音模型"})).toBeNull();
   await waitFor(() => expect(fetch).toHaveBeenCalled());
   expect(fetch.mock.calls.every(call => !String(call[0]).includes("/vendors/"))).toBe(true);
-  fireEvent.mouseDown(screen.getByRole("combobox", {name:"统一旁白厂商"}));
+  fireEvent.mouseDown(screen.getByRole("combobox", {name:"配音厂商"}));
   fireEvent.click(await screen.findByRole("option", {name:"配音服务 · 远程API"}));
-  expect(screen.getByRole("combobox", {name:"统一旁白模型"})).toBeTruthy();
+  expect(screen.getByRole("combobox", {name:"配音模型"})).toBeTruthy();
 });
 
 it("shows model prices in both the dropdown and selected detail", async () => {

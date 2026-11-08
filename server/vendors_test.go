@@ -15,7 +15,8 @@ func TestVendorRegistryPreservesLegacySettings(t *testing.T) {
 	if v.RegistryVersion != 1 || len(v.Vendors) != 4 {
 		t.Fatal("legacy registry missing", v)
 	}
-	for _, cap := range capabilities {
+	// Legacy settings had exactly these four capabilities; music stays unbound.
+	for _, cap := range []string{"text", "image", "video", "voice"} {
 		ep, e := resolveEndpoint(v, cap)
 		legacy := endpointFor(old, cap)
 		if e != nil || ep.Base != legacy.Base || ep.KeyEnv != legacy.KeyEnv || ep.Model != legacy.Model {

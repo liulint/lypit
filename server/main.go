@@ -20,6 +20,8 @@ import (
 )
 
 type Studio struct {
+	dramaOnly   bool
+	dramaMu     sync.Mutex
 	catalogMu   sync.Mutex
 	catalog     map[string]ModelCatalog
 	toolMu      sync.Mutex
@@ -37,12 +39,18 @@ func newStudio(ctx context.Context, root, data string) (*Studio, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &Studio{store: st, root: root, data: data, ctx: ctx, running: map[string]context.CancelFunc{}}, nil
+	s := &Studio{store: st, root: root, data: data, ctx: ctx, running: map[string]context.CancelFunc{}}
+	if e := s.initDrama(); e != nil {
+		st.close()
+		return nil, e
+	}
+	return s, nil
 }
 func main() {
 	root := flag.String("root", "..", "项目根目录（默认从server目录启动）")
 	data := flag.String("data", "", "SQLite与素材目录，默认<root>/data")
 	listen := flag.String("listen", "127.0.0.1:8080", "本机监听地址")
+	freshDrama := flag.Bool("reset-drama", false, "归档旧数据，仅保留厂商、模型、并发和密文凭据后启动新流程")
 	flag.Parse()
 	host, _, e := net.SplitHostPort(*listen)
 	if e != nil {
@@ -63,12 +71,22 @@ func main() {
 	if e != nil {
 		log.Fatal(e)
 	}
+	if *freshDrama {
+		archive, err := resetDramaData(*data)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if archive != "" {
+			log.Printf("旧数据已归档：%s", archive)
+		}
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	s, e := newStudio(ctx, *root, *data)
 	if e != nil {
 		log.Fatal(e)
 	}
+	s.dramaOnly = true
 	srv := &http.Server{Addr: *listen, Handler: s.router(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	shutdownDone := make(chan struct{})
 	go func() {
@@ -140,6 +158,17 @@ func (s *Studio) router() *gin.Engine {
 		c.Next()
 	})
 	a := r.Group("/api")
+	a.Use(func(c *gin.Context) {
+		if s.dramaOnly {
+			p := c.Request.URL.Path
+			if strings.HasPrefix(p, "/api/projects") || strings.HasPrefix(p, "/api/prompts") || (strings.HasPrefix(p, "/api/quotes/")) {
+				c.AbortWithStatusJSON(410, gin.H{"error": "旧创作流程已停用，请使用Drama Skills工作台"})
+				return
+			}
+		}
+		c.Next()
+	})
+	s.dramaRoutes(a)
 	a.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true, "mode": "local-single-user", "database": "sqlite"})
 	})
@@ -243,6 +272,11 @@ func (s *Studio) router() *gin.Engine {
 			c.File(file)
 			return
 		}
+		// Missing versioned chunks must not receive the SPA's HTML document.
+		if strings.HasPrefix(c.Request.URL.Path, "/assets/") {
+			c.Status(404)
+			return
+		}
 		index := filepath.Join(web, "index.html")
 		if _, e := os.Stat(index); e == nil {
 			c.File(index)
@@ -257,7 +291,7 @@ func safeMedia(file string) bool {
 		return false
 	}
 	switch strings.ToLower(filepath.Ext(file)) {
-	case ".png", ".jpg", ".jpeg", ".mp4", ".wav", ".mp3", ".srt":
+	case ".png", ".jpg", ".jpeg", ".webp", ".mp4", ".wav", ".mp3", ".srt":
 		return true
 	}
 	return false

@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import App from "./DramaStudio";
 import { StudioProvider } from "./ui";
 import "antd/dist/reset.css";
 import "./style.css";

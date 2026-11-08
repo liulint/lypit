@@ -20,6 +20,9 @@ import (
 
 func (s *Studio) writeMedia(pid, name string, b []byte) (string, error) {
 	rel := filepath.ToSlash(filepath.Join(pid, name))
+	if filepath.Base(name) != name || strings.Contains(pid, "..") || !safeMedia(rel) {
+		return "", errors.New("媒体输出路径无效")
+	}
 	dest := s.media(rel)
 	if e := os.MkdirAll(filepath.Dir(dest), 0700); e != nil {
 		return "", e

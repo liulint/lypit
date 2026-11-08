@@ -74,8 +74,13 @@ func init() {
 		os.Exit(0)
 	case "analyze":
 		result = []byte(`{"script":"【0—60秒｜主场景】\n主角看向窗外。","assets":[{"kind":"character","name":"主角","description":"人物设定"},{"kind":"scene","name":"主场景","description":"场景设定"}]}`)
-	case "image":
-		b, err := os.ReadFile(os.Getenv("IMAGE_FIXTURE"))
+	case "image", "aspect-retry":
+		fixture := os.Getenv("IMAGE_FIXTURE")
+		cwd, _ := os.Getwd()
+		if string(scenario) == "aspect-retry" && strings.HasSuffix(filepath.Base(cwd), "-aspect-retry-1") {
+			fixture = os.Getenv("IMAGE_RETRY_FIXTURE")
+		}
+		b, err := os.ReadFile(fixture)
 		if err != nil {
 			os.Exit(2)
 		}

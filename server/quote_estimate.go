@@ -62,7 +62,8 @@ func applyVideoEstimate(q *Quote, p Project, cfg Settings) {
 	if seconds <= 0 {
 		return
 	}
-	// Both video request builders currently submit 480p, with default 24 fps.
+	// Match the immutable request resolution; old tasks default to 480p.
+	resolution := videoResolution(p.VideoResolution)
 	// Pixel sizes follow the official model-specific table, not local render size.
 	w, h := 864, 496
 	if strings.Contains(ep.Model, "seedance-2-5") || strings.Contains(ep.Model, "seedance-2.5") {
@@ -70,10 +71,36 @@ func applyVideoEstimate(q *Quote, p Project, cfg Settings) {
 	} else if strings.Contains(ep.Model, "seedance-1") {
 		w, h = 864, 480
 	}
+	if resolution == "720p" {
+		w, h = 1280, 720
+		if strings.Contains(ep.Model, "seedance-1") {
+			w, h = 1248, 704
+		}
+	}
+	if resolution == "1080p" {
+		w, h = 1920, 1080
+		if strings.Contains(ep.Model, "seedance-1") {
+			w, h = 1920, 1088
+		}
+	}
 	if projectAspect(p) == "9:16" {
 		w, h = h, w
 	}
-	row := pricing.Rows[0] // All supported tables start with the no-video 480p tier.
+	row := pricing.Rows[0]
+	if !strings.Contains(ep.Model, "seedance-1") {
+		found := false
+		for _, r := range pricing.Rows {
+			if strings.Contains(r.Condition, resolution) && strings.Contains(r.Condition, "不含视频输入") {
+				row = r
+				found = true
+				break
+			}
+		}
+		if !found {
+			q.EstimateReason = "当前清晰度没有已核实的价格档位，费用未知。"
+			return
+		}
+	}
 	rate, err := strconv.ParseFloat(row.Amount, 64)
 	if err != nil || row.Currency != "CNY" || row.Unit != "百万视频 Token" {
 		return
@@ -81,7 +108,7 @@ func applyVideoEstimate(q *Quote, p Project, cfg Settings) {
 	tokens := float64(seconds*w*h*24) / 1024
 	q.Estimate = &QuoteEstimate{
 		Amount: fmt.Sprintf("%.2f", tokens*rate/1_000_000), Currency: "CNY", Model: ep.Model,
-		Basis:  fmt.Sprintf("480p · 按项目画幅 %s（%d×%d）、24帧/秒、合计%d秒、不含视频输入估算：约%.0f视频Token × ¥%s/百万Token。首帧自适应可能改变实际像素；以返回用量及厂商账单结算，非固定总价或费用上限。", projectAspect(p), w, h, seconds, tokens, row.Amount),
+		Basis:  fmt.Sprintf("%s · 按项目画幅 %s（%d×%d）、24帧/秒、合计%d秒、不含视频输入估算：约%.0f视频Token × ¥%s/百万Token。首帧自适应可能改变实际像素；以返回用量及厂商账单结算，非固定总价或费用上限。", resolution, projectAspect(p), w, h, seconds, tokens, row.Amount),
 		Source: pricing.Source, URL: pricing.URL, Checked: pricing.Checked,
 	}
 	q.EstimateReason = ""

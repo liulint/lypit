@@ -1,0 +1,12 @@
+{
+  "analyze": "你是短片编剧兼导演。写一部可实际拍摄的{{duration}}秒、{{aspect}}中文短片，先完成总体剧本与资产清单，不生成分镜图片。\n故事须有清楚的主角愿望、具体阻碍、由主角行动导致的变化与结尾回响；短时长减少支线，用可见行为推进，避免空泛抒情、突然成功、靠旁白解释一切或无因跳场。保留用户明确要求的事件与台词；要求确实放不下时返回{\"conflict\":\"无法容纳的内容及建议调整\"}，不擅自删掉必需情节。\n先按动作和台词负担规划段落，再分配时间，不均分、不默认每段5秒，不为凑总长增加无关事件。剧本每段使用独占一行的【0—6秒｜地点·时间】格式（数字为示例），从0秒连续覆盖{{duration}}秒。各段必须能拆成{{min_duration}}～{{max_duration}}秒的镜头；短段只放一个可完成动作，长段保留拆镜空间，每个潜在镜头都留至少1秒收束。对白按自然语速和停顿预算，不超过每秒5个汉字/字母/数字，动作不能占满全部时间后再塞台词。\n每段写清：开场状态、一个核心事件及完成标志、结束状态、与前段的因果和视觉承接。白天转夜晚、地点变化或时间省略必须有明确叙事依据和可读线索，避免人物/道具突然到位。上述说明不能包含未发生的新事件；不要在动作段落里混入另一场景。结尾完成主要事件并留情绪落点，不在动作中途结束。\n开头简洁写角色固定外观及音色约束。对白独占一行，严格“角色名：台词”，角色名和资产名称一致；旁白模式不写角色对白。素材范围：角色1～3、场景1～3、道具0～2，名称具体，描述固定特征。\n返回JSON {{output_contract}}。\n风格：{{style}}\n用户故事：{{idea}}\n{{audio_direction}}",
+  "board_plan": "你是执行分镜导演。总体剧本是唯一剧情依据，忠实拆解，不重新编剧。总时长{{duration}}秒，画幅{{aspect}}。不得固定镜头数或均分时长。有明确时间段时，严格保留各段边界、场景、事件顺序和台词原文；只允许在同一段内按动作拆成更多镜头，不可跨段合并。无时间段时按剧情顺序自然拆镜。单镜{{min_duration}}～{{max_duration}}秒，不得拆出短于下限的镜头；无法满足时应报告冲突，禁止自动重试。超长段落在原段内部拆镜，不删减事件。不得新增、遗漏或挪动剧情和角色。每镜source_text逐字复制所属完整时间段（含标题），无时间段则逐字引用对应原文。first_frame仅描述动作开始之前同一时空的一幅静态构图：人物位置、姿态、道具、光线、景别；禁止提前画动作结尾或将多个场景揉成一张图。description只写从该首帧开始按顺序演出的动作、运镜和声音。narration逐字保留本镜对白，不改写，不朗读角色名，无台词留空。仅用素材清单ID引用，角色音色及固定特征遵从总体剧本。返回JSON {{output_contract}}。这是文字草稿，完成后等待人工审核，不生成图片。\n总体剧本：{{script}}\n素材清单：{{assets}}\n{{audio_direction}}\n{{directing_rules}}\n每镜增加：{{execution_schema}}",
+  "shot_rewrite": "你是短片导演。只重写当前镜头，输出严格适合{{target_duration}}秒的内容。允许完全重写首帧、动作和台词，保持既定人物身份、场景道具和前后剧情衔接，不新增引用素材，不修改其他镜头。动作应少而明确，台词需自然说完（每秒不超过5个汉字或字母）。首帧是静态画面，动作另写。返回JSON {{output_contract}}。当前镜头ID：{{shot_id}}；前后镜头：{{context_shots}}；总体剧本：{{script}}；素材：{{assets}}；{{audio_direction}}\n{{directing_rules}}\n增加：{{execution_schema}}",
+  "character_master": "{{style}}。角色正面全身主图，纯净背景。{{asset_description}}\n{{image_contract}}",
+  "character_sheet": "{{style}}。以参考图人物为唯一身份依据，固定同一服装。{{asset_description}}\n{{sheet_contract}}",
+  "asset_reference": "{{style}}。完整独立的{{asset_kind}}参考图。{{asset_description}}\n{{image_contract}}",
+  "board_image": "{{style}}。{{aspect}}电影分镜，严格保持参考人物身份、服装和场景。{{first_frame}}\n{{image_contract}}",
+  "board_retry": "{{style}}。{{aspect}}电影分镜。保持参考角色身份、外观与场景，原分镜：{{first_frame}}。{{current_reference}}本次修改建议：{{feedback}}\n{{image_contract}}",
+  "board_edit": "编辑现有图片，只修改明确要求的部分。修改内容：{{changes}}。必须保留：{{preserve}}。\n{{edit_contract}}",
+  "video": "总体风格与身份约束：{{continuity}}\n静态首帧：{{first_frame}}\n风格：{{style}}\n从首帧开始演出，仅发生本镜动作：{{description}}\n{{audio_instruction}}"
+}

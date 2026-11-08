@@ -278,6 +278,9 @@ func (s *Studio) previousVideoURL(ctx context.Context, pid string, v VideoInput)
 
 func (s *Studio) plannedVideoRequest(ctx context.Context, t Task, q Shot, model string) (map[string]any, error) {
 	v, ok := inputFor(t, q.ID)
+	if t.CreativePrompt != "" {
+		return s.dramaVideoRequest(ctx, t, q, model, v)
+	}
 	if !ok { // Historical confirmed tasks keep their original single-reference request.
 		b, e := os.ReadFile(s.media(q.Candidates[q.Selected].File))
 		if e != nil {
@@ -360,7 +363,7 @@ func videoTaskOptions(p Project, q Shot, model, mode string) map[string]any {
 	if mode == "first_frame" || mode == "first_last" || mode == "continue" || mode == "edit_video" {
 		ratio = "adaptive"
 	}
-	body := map[string]any{"model": model, "duration": q.Duration, "ratio": ratio, "resolution": "480p", "generate_audio": dialogueMode(p)}
+	body := map[string]any{"model": model, "duration": q.Duration, "ratio": ratio, "resolution": videoResolution(p.VideoResolution), "generate_audio": dialogueMode(p)}
 	if is25 && mode == "edit_video" {
 		body["duration"] = -1 // Provider edit mode preserves the bound source duration.
 		body["omni_reference_task_type"] = "edit"

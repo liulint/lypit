@@ -22,7 +22,7 @@ func promptOutputContract(id string) string {
 	return ""
 }
 
-const promptTemplatesVersion = 1
+const promptTemplatesVersion = 3
 const maxPromptBytes = 50000
 
 type promptDefinition struct {
@@ -108,7 +108,7 @@ func (t Task) renderPrompt(id, historical string, vars map[string]string) (strin
 	if t.PromptTemplatesVersion == 0 {
 		return historical, nil
 	}
-	if t.PromptTemplatesVersion != promptTemplatesVersion {
+	if t.PromptTemplatesVersion < 1 || t.PromptTemplatesVersion > promptTemplatesVersion {
 		return "", errors.New("任务提示词版本不受支持，禁止改用当前配置重提")
 	}
 	text, ok := t.Config.PromptTemplates[id]

@@ -615,6 +615,10 @@ func (s *Studio) launch(id string) {
 	}()
 }
 func (s *Studio) taskAction(c *gin.Context) {
+	if t, e := s.store.task(c.Param("id")); e == nil && strings.HasPrefix(t.Stage, "drama_") {
+		result(c, nil, errors.New("请从新工作流恢复或取消任务"))
+		return
+	}
 	id := c.Param("id")
 	action := c.Param("action")
 	s.mu.Lock()

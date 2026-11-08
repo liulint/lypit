@@ -116,7 +116,7 @@ func TestPromptChangesInvalidateQuotesAndFreezeConfirmedTasks(t *testing.T) {
 	}
 	waitTask(t, s, public.ID)
 	job, err := s.store.task(public.ID)
-	if err != nil || job.PromptTemplatesVersion != 1 || len(job.Config.PromptTemplates) != 10 || !strings.Contains(job.Config.PromptTemplates["analyze"], "first-custom-marker") {
+	if err != nil || job.PromptTemplatesVersion != promptTemplatesVersion || len(job.Config.PromptTemplates) != 10 || !strings.Contains(job.Config.PromptTemplates["analyze"], "first-custom-marker") {
 		t.Fatal("snapshot incomplete", err)
 	}
 	cfg, _ = s.store.settings()
@@ -211,7 +211,7 @@ func TestManagedTextStagesSendEditedTemplatesAndRecoverWithoutResubmission(t *te
 			cfg.Mode = "remote"
 			cfg.Text.Base = server.URL
 			cfg.PromptTemplates[key] += "\nedited-" + key
-			job := Task{ID: uid(), ProjectID: p.ID, Stage: key, Input: p, Config: cfg, Mode: "remote", PromptTemplatesVersion: 1, StoryDirectionVersion: 1, ShotID: p.Shots[0].ID, TargetDuration: 5}
+			job := Task{ID: uid(), ProjectID: p.ID, Stage: key, Input: p, Config: cfg, Mode: "remote", PromptTemplatesVersion: promptTemplatesVersion, StoryDirectionVersion: 1, ShotID: p.Shots[0].ID, TargetDuration: 5}
 			if _, err := s.store.db.Exec("INSERT INTO tasks VALUES(?,?,?,?,?,?)", job.ID, p.ID, "failed", jsonBytes(job), jsonBytes(p), jsonBytes(cfg)); err != nil {
 				t.Fatal(err)
 			}

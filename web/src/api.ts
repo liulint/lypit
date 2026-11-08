@@ -121,12 +121,12 @@ export type Quote = {
   expires: string;
   task_id?: string;
 };
-export type Capability = "text" | "image" | "video" | "voice";
+export type Capability = "text" | "image" | "video" | "voice" | "music";
 export type ModelPricing = { rows: { label: string; condition?: string; amount: string; unit: string; currency?: string }[]; source: string; url: string; checked: string; note: string };
 export type CatalogModel = { id: string; name: string; capabilities: string[]; services: Capability[]; verified: boolean; pricing?: ModelPricing };
 export type ModelCatalog = { models: CatalogModel[]; source: string; updated: string; stale: boolean; error?: string };
 export type Vendor = {
-  kind?: "codex" | "claude" | "ark" | "bailian" | "custom";
+  kind?: "codex" | "claude" | "ark" | "bailian" | "custom" | "minimax";
   region?: string;
   workspace?: string;
   key_mode?: "local" | "env";
@@ -134,7 +134,7 @@ export type Vendor = {
   id: string;
   name: string;
   type: "api" | "cli";
-  protocol?: "openai" | "ark";
+  protocol?: "openai" | "ark" | "minimax";
   base?: string;
   key_env?: string;
   cli?: "codex" | "claude";
@@ -157,6 +157,7 @@ export type Settings = {
   image: Endpoint;
   video: Endpoint;
   voice: Endpoint;
+  music?: Endpoint;
 };
 export type SettingsUpdate = Settings & { api_keys?: Record<string, string>; section?: "vendors" | "services" };
 export const stageNames: Record<string, string> = {

@@ -241,6 +241,12 @@ func dependencyLicenses(root string) ([]byte, error) {
 			result.WriteByte('\n')
 		}
 	}
+	license, err := os.ReadFile(filepath.Join(root, "server", "drama_bundle", "LICENSE"))
+	if err != nil {
+		return nil, err
+	}
+	result.WriteString("\n=== Drama Skills 0.11.1 (embedded original skills and references) ===\nhttps://github.com/zenstory-ai/drama-skills\n")
+	result.Write(license)
 	return result.Bytes(), nil
 }
 func copyTree(source, dest string) error {
