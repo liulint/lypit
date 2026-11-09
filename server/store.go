@@ -48,7 +48,30 @@ func openStore(dir string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db, lock: l}
-	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+	var version int
+	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
+		s.close()
+		return nil, e
+	}
+	if version > dataSchemaVersion {
+		s.close()
+		return nil, fmt.Errorf("数据版本 %d 高于本程序支持的版本 %d，请使用新版程序；不会降级或重建数据", version, dataSchemaVersion)
+	}
+	if version < dataSchemaVersion {
+		var tables int
+		if e = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); e != nil {
+			s.close()
+			return nil, e
+		}
+		if tables > 0 {
+			if _, e = backupUserData(db, dir); e != nil {
+				s.close()
+				return nil, e
+			}
+		}
+	}
+	e = s.transaction(func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, body TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), body TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), status TEXT NOT NULL, body TEXT NOT NULL, input TEXT NOT NULL, config TEXT NOT NULL);
@@ -56,6 +79,8 @@ CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project_id,status);
 CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), status TEXT NOT NULL, response BLOB, remote_id TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL REFERENCES projects(id), revision INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(project_id,revision));
 PRAGMA user_version=1;`)
+		return err
+	})
 	if e != nil {
 		s.close()
 		return nil, e

@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS drama_media_reuse(id TEXT PRIMARY KEY,body TEXT NOT N
 CREATE TABLE IF NOT EXISTS drama_quotes(id TEXT PRIMARY KEY,body TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS drama_video_starts(work_id TEXT NOT NULL REFERENCES drama_works(id),entry TEXT NOT NULL,motion_hash TEXT NOT NULL,board_hash TEXT NOT NULL,mode TEXT NOT NULL,PRIMARY KEY(work_id,entry));
 CREATE TABLE IF NOT EXISTS drama_video_choices(work_id TEXT NOT NULL REFERENCES drama_works(id),entry TEXT NOT NULL,media_id TEXT NOT NULL,PRIMARY KEY(work_id,entry));
+CREATE TABLE IF NOT EXISTS drama_imports(id TEXT PRIMARY KEY,hash TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS drama_media(id TEXT PRIMARY KEY,work_id TEXT NOT NULL REFERENCES drama_works(id),body TEXT NOT NULL);`)
 	return e
 }
@@ -726,6 +727,7 @@ func (s *Studio) dramaRoutes(a *gin.RouterGroup) {
 		c.Header("Content-Disposition", "attachment; filename="+dramaEpisodeCode(w)+".zip")
 		c.Data(200, "application/zip", buf.Bytes())
 	})
+	s.dramaPackageRoutes(g)
 	s.dramaSeriesRoutes(g)
 	s.dramaReuseRoutes(g)
 	s.dramaFrameBindingRoutes(g)

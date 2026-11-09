@@ -17,7 +17,7 @@ try {
         $env:CGO_ENABLED = '0'
         & go build -o $binary .
         if ($LASTEXITCODE -ne 0) { throw 'Backend build failed' }
-        & $binary -root $projectRoot @args
+        & $binary -root $projectRoot -open-browser @args
         $appExit = $LASTEXITCODE
     } finally { Pop-Location }
 } finally { $env:CGO_ENABLED = $oldCGO }

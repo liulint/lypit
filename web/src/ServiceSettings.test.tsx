@@ -258,3 +258,27 @@ it("shows model prices in both the dropdown and selected detail", async () => {
   fireEvent.mouseDown(screen.getByRole("combobox",{name:"视频生成模型"}));
   expect(await screen.findByText("视频生成 · 480p / 720p · 不含视频输入：¥23.00 / 百万视频 Token")).toBeTruthy();
 });
+
+
+it("shows the persistent data directory and reports backup failures and completion", async () => {
+  let fail = true;
+  const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/system/data") return new Response(JSON.stringify({directory:"/users/test/Lypit Studio",backup_directory:"/users/test/Lypit Studio Backups"}));
+    if (path === "/api/system/data/backup") {
+      expect(init?.method).toBe("POST");
+      if (fail) return new Response(JSON.stringify({error:"请等待当前任务结束后再备份"}),{status:400});
+      return new Response(JSON.stringify({directory:"/users/test/Lypit Studio Backups/snapshot"}));
+    }
+    return new Response(JSON.stringify({tools:{}}));
+  });
+  vi.stubGlobal("fetch",fetcher);
+  const settings: Settings = {version:1,registry_version:1,mode:"mock",vendors:[],text:{model:""},image:{model:""},video:{model:""},voice:{model:""}};
+  render(<StudioProvider><ServiceSettings settings={settings} credentials={{}} busy={false} save={vi.fn()} /></StudioProvider>);
+  await screen.findByText("/users/test/Lypit Studio");
+  fireEvent.click(screen.getByRole("button",{name:"备份全部数据"}));
+  await screen.findByText("请等待当前任务结束后再备份");
+  fail = false;
+  fireEvent.click(screen.getByRole("button",{name:"备份全部数据"}));
+  await screen.findByText("完整备份已保存");
+  expect(screen.getByText("/users/test/Lypit Studio Backups/snapshot")).toBeTruthy();
+});

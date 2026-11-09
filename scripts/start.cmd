@@ -18,7 +18,7 @@ pushd "%PROJECT_ROOT%\server"
 set "CGO_ENABLED=0"
 go build -o "%PROJECT_ROOT%\.cache\lypit-studio.exe" .
 if errorlevel 1 (popd & exit /b 1)
-"%PROJECT_ROOT%\.cache\lypit-studio.exe" -root "%PROJECT_ROOT%" %*
+"%PROJECT_ROOT%\.cache\lypit-studio.exe" -root "%PROJECT_ROOT%" -open-browser %*
 set "APP_EXIT=%errorlevel%"
 popd
 exit /b %APP_EXIT%

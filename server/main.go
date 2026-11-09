@@ -20,6 +20,7 @@ import (
 )
 
 type Studio struct {
+	dataGate    sync.RWMutex
 	dramaOnly   bool
 	dramaMu     sync.Mutex
 	catalogMu   sync.Mutex
@@ -49,6 +50,8 @@ func newStudio(ctx context.Context, root, data string) (*Studio, error) {
 func main() {
 	root := flag.String("root", "..", "项目根目录（默认从server目录启动）")
 	data := flag.String("data", "", "SQLite与素材目录，默认<root>/data")
+	userData := flag.Bool("user-data", false, "使用系统用户数据目录（发行版）")
+	openBrowser := flag.Bool("open-browser", false, "启动成功后打开默认浏览器")
 	listen := flag.String("listen", "127.0.0.1:8080", "本机监听地址")
 	freshDrama := flag.Bool("reset-drama", false, "归档旧数据，仅保留厂商、模型、并发和密文凭据后启动新流程")
 	flag.Parse()
@@ -65,7 +68,14 @@ func main() {
 		log.Fatal(e)
 	}
 	if *data == "" {
-		*data = filepath.Join(*root, "data")
+		if *userData {
+			*data, e = userDataDir()
+			if e != nil {
+				log.Fatal(e)
+			}
+		} else {
+			*data = filepath.Join(*root, "data")
+		}
 	}
 	*data, e = filepath.Abs(*data)
 	if e != nil {
@@ -87,6 +97,7 @@ func main() {
 		log.Fatal(e)
 	}
 	s.dramaOnly = true
+	log.Printf("用户数据目录：%s", s.data)
 	srv := &http.Server{Addr: *listen, Handler: s.router(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	shutdownDone := make(chan struct{})
 	go func() {
@@ -101,8 +112,7 @@ func main() {
 		defer done()
 		_ = srv.Shutdown(stop)
 	}()
-	log.Printf("映序已启动：http://%s · 无需登录 · SQLite 本地存储", *listen)
-	if e = srv.ListenAndServe(); e != nil && !errors.Is(e, http.ErrServerClosed) {
+	if e = serveLocalHTTP(ctx, srv, *openBrowser, openDefaultBrowser); e != nil && !errors.Is(e, http.ErrServerClosed) {
 		log.Print(e)
 		cancel()
 	}
@@ -168,6 +178,17 @@ func (s *Studio) router() *gin.Engine {
 		}
 		c.Next()
 	})
+	a.Use(func(c *gin.Context) {
+		if c.Request.URL.Path == "/api/system/data/backup" {
+			s.dataGate.Lock()
+			defer s.dataGate.Unlock()
+		} else {
+			s.dataGate.RLock()
+			defer s.dataGate.RUnlock()
+		}
+		c.Next()
+	})
+	s.dataRoutes(a)
 	s.dramaRoutes(a)
 	a.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true, "mode": "local-single-user", "database": "sqlite"})

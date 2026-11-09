@@ -8,7 +8,7 @@
 
 普通用户使用发行包，无需 Go、Node.js 或 C 编译器。源码开发需要 Go 1.25+、Node.js 22.12+，SQLite 使用纯 Go 驱动，不需要 CGO。
 
-发行包：macOS Apple Silicon、macOS Intel、Windows x64 分别打包。解压到可写目录，macOS 运行 `start.command`，Windows 运行 `start.cmd`；保持终端打开，浏览器访问 `http://127.0.0.1:8080/`。每包只有对应平台后台、前端 `web/dist`、启动脚本和发行说明；运行数据自动写入包内 `data/`。外部 npm 版 CLI 仍需要其自身的 Node.js 环境。发行程序尚未代码签名/Apple公证，首次运行可能需要在系统安全提示中允许。
+发行包：macOS Apple Silicon、macOS Intel、Windows x64 分别打包。解压到可写目录，macOS 运行 `start.command`，Windows 运行 `start.cmd`；服务启动成功后自动打开默认浏览器，保持终端打开，也可手动访问 `http://127.0.0.1:8080/`。每包只有对应平台后台、前端 `web/dist`、启动脚本和发行说明；用户数据独立保存在 macOS 的 `~/Library/Application Support/Lypit Studio/` 或 Windows 的 `%LOCALAPPDATA%\Lypit Studio\`。更新时关闭程序，解压新包并启动即可复用数据；删除旧程序文件夹不会删除个人数据。服务配置页可打开数据目录、备份完整数据；备份包含素材、任务、配置和加密密钥，须妥善保管。源码开发仍使用项目 `data/`，显式 `-data` 可指定目录。外部 npm 版 CLI 仍需要其自身的 Node.js 环境。发行程序尚未代码签名/Apple公证，首次运行可能需要在系统安全提示中允许。
 
 开发者生成发行包：`npm --prefix web run package`；输出到 `.cache/releases/<时间戳>/`，不包含本机数据或凭据。Windows 源码启动使用 `scripts\start.cmd`（CMD/双击）或 `scripts/start.ps1`（PowerShell）；macOS 使用以下命令：
 
@@ -173,3 +173,5 @@ CLI 执行诊断保存在 `data/cli/<任务ID>/<作业ID>/cli-execution.json`，
 已核对的 Seedance 2.0/2.5 视频编辑遵守原片规格；2.5 使用原生 edit 任务、adaptive 画幅与自动保持原片时长参数，完成后检查实际时长。含视频输入的报价保留输入视频及最低用量带来的费用不确定性，生成后的参考费用按含视频输入档折算。失败或未知结果保留原视频，恢复只查询/下载原任务，不重发；成功的新视频使用独立文件，其他镜头不重做。
 
 系列剧入口支持通用共用设定与素材版本、分集管理、逐集制作及人工确认前情，原单集制作保留。操作和版本边界见 [Drama工作流](docs-drama-workflow.md#系列剧)。
+
+发行版更新与备份：启动脚本通过 `-user-data` 使用固定系统用户目录，`-data` 显式参数优先。更新前等待制作任务结束并正常退出，备份后再替换程序；未知提交只恢复原任务，不重新调用模型。备份保存在数据目录同级的 `Lypit Studio Backups/`，包含 SQLite 一致性快照、全部普通文件和 SHA-256 清单；`.incomplete-` 开头的目录表示失败副本，不可作为完整备份。恢复时停服，将完整备份复制到独立空目录，以 `-data` 指向该目录验证后再使用，保留原目录；不要混合不同备份。数据库高于程序支持版本时拒绝启动，禁止用旧版强行打开。今后修改数据库或持久化内容格式时必须提升数据版本、补充事务迁移及兼容性测试，先完整备份再迁移，失败停止；不支持的数据版本不得自动重建。

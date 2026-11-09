@@ -9,4 +9,4 @@ npm run build
 mkdir -p "$PROJECT_ROOT/.cache"
 cd "$PROJECT_ROOT/server"
 CGO_ENABLED=0 go build -o "$PROJECT_ROOT/.cache/lypit-studio" .
-exec "$PROJECT_ROOT/.cache/lypit-studio" -root "$PROJECT_ROOT" "$@"
+exec "$PROJECT_ROOT/.cache/lypit-studio" -root "$PROJECT_ROOT" -open-browser "$@"

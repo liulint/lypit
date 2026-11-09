@@ -405,6 +405,7 @@ export default function ServiceSettings({
         title="配置修改会使未确认报价失效；已确认任务保留原厂商快照。"
         description="API Key 可直接输入并在本机加密保存，编辑时留空保留原密钥。也支持环境变量。CLI复用本机账户；保存配置不会触发生成。"
       />
+      {page === "services" && <UserDataPanel />}
       {page === "services" && <section className="panel tool-panel">
         <h2>本机制作工具</h2>
         <div>
@@ -566,4 +567,31 @@ export default function ServiceSettings({
       )}
     </div>
   );
+}
+
+
+function UserDataPanel() {
+  const [data, setData] = useState<{directory:string;backup_directory:string}>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [backup, setBackup] = useState("");
+  useEffect(() => { let alive = true; api<{directory:string;backup_directory:string}>("/system/data").then(v => { if (alive) setData(v); }).catch(e => { if (alive) setError(String(e.message)); }); return () => { alive = false; }; }, []);
+  async function action(kind: "open" | "backup") {
+    setBusy(true); setError("");
+    try {
+      const result = await api<{directory?:string}>(`/system/data/${kind}`, {}, "POST", 30 * 60 * 1000);
+      if (kind === "backup") setBackup(result.directory || "");
+    } catch (e) { setError(e instanceof Error ? e.message : "操作失败"); }
+    finally { setBusy(false); }
+  }
+  return <section className="panel">
+    <h2>个人数据与更新</h2>
+    <p>发行版将作品、素材、任务记录、服务配置和加密密钥独立保存。更新时关闭程序，解压新版并启动即可继续使用原数据。</p>
+    {data && <><p>数据目录：<code>{data.directory}</code></p><p>备份目录：<code>{data.backup_directory}</code></p></>}
+    <div className="inline-actions"><Button disabled={busy || !data} onClick={() => void action("open")}>打开数据目录</Button><Button disabled={busy || !data} onClick={() => void action("backup")}>{busy ? "处理中…" : "备份全部数据"}</Button></div>
+    <p>备份前请等待制作任务结束；备份期间暂停编辑，大量素材可能需要较长时间。备份保存在本机，包含加密密钥，请妥善保管。</p>
+    <p>恢复备份：先关闭程序，将当前数据目录改名保留，再把完整备份复制为原数据目录；勿将不同备份混合。请使用创建该数据的版本或兼容新版程序。</p>
+    {backup && <Alert type="success" showIcon title="完整备份已保存" description={backup} />}
+    {error && <Alert type="error" showIcon title={error} />}
+  </section>;
 }

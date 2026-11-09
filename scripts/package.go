@@ -109,15 +109,15 @@ func buildPackages(rootArg, outArg, targets string) error {
 set -eu
 APP_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$APP_ROOT"
-exec "$APP_ROOT/lypit-studio" -root "$APP_ROOT" "$@"
+exec "$APP_ROOT/lypit-studio" -root "$APP_ROOT" -user-data -open-browser "$@"
 `
 		if goos == "windows" {
-			launch = "@echo off\r\nsetlocal DisableDelayedExpansion\r\ncd /d \"%~dp0\"\r\n\"%~dp0lypit-studio.exe\" -root \"%~dp0.\" %*\r\nexit /b %errorlevel%\r\n"
+			launch = "@echo off\r\nsetlocal DisableDelayedExpansion\r\ncd /d \"%~dp0\"\r\n\"%~dp0lypit-studio.exe\" -root \"%~dp0.\" -user-data -open-browser %*\r\nexit /b %errorlevel%\r\n"
 		}
 		if err = os.WriteFile(filepath.Join(dir, launcher), []byte(launch), 0755); err != nil {
 			return err
 		}
-		readme := "映序：AI 短片工作台\n\n运行 " + launcher + "，保持终端开启，在浏览器访问 http://127.0.0.1:8080/ 。\n应用无需 Go、Node.js、C 编译器或登录；整个文件夹需放在可写位置。\n前端位于 web/dist，后台程序位于根目录，运行数据自动保存在 data。\nFFmpeg 缺失时在模型服务页安装：macOS 使用 Homebrew，Windows 使用 WinGet。\n本地CLI需自行安装并登录；npm版CLI还需其自身要求的Node.js环境。\n密钥只在本机加密保存；不要把含 data 的个人运行目录发给别人。\n本包未签名/公证，首次启动可能需要在系统安全提示中允许该程序。\n"
+		readme := "映序：AI 短片工作台\n\n运行 " + launcher + "，启动成功后自动打开默认浏览器，保持终端开启；也可手动访问 http://127.0.0.1:8080/ 。\n应用无需 Go、Node.js、C 编译器或登录；整个文件夹需放在可写位置。\n前端位于 web/dist，后台程序位于根目录，用户数据独立保存：macOS 为 ~/Library/Application Support/Lypit Studio，Windows 为 %LOCALAPPDATA%\\Lypit Studio。\nFFmpeg 缺失时在模型服务页安装：macOS 使用 Homebrew，Windows 使用 WinGet。\n本地CLI需自行安装并登录；npm版CLI还需其自身要求的Node.js环境。\n密钥只在本机加密保存；备份包含作品、素材、任务、配置和加密密钥，切勿发送给别人。\n更新：先关闭程序，解压新版后启动即可；删除旧程序文件夹不会删除个人数据。\n服务配置页可打开数据目录并创建完整备份。\n本包未签名/公证，首次启动可能需要在系统安全提示中允许该程序。\n"
 		if err = os.WriteFile(filepath.Join(dir, "README.txt"), []byte(readme), 0644); err != nil {
 			return err
 		}

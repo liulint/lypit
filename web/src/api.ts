@@ -193,6 +193,7 @@ export async function api<T>(
   path: string,
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
+  timeoutMs = 20000,
 ): Promise<T> {
   let response: Response;
   try {
@@ -203,7 +204,7 @@ export async function api<T>(
         "X-Lypit-Client": "studio",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new Error(
